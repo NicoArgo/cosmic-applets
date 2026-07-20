@@ -384,9 +384,6 @@ struct CosmicAppList {
     overflow_active_popup: Option<window::Id>,
     /// POP Flow: the app id awaiting its hover-preview debounce, if any.
     hover_pending: Option<u32>,
-    /// POP Flow: whether the currently-open popup is a hover preview (so it is
-    /// dismissed on hover-exit, unlike a click-opened popup).
-    hover_popup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -666,7 +663,6 @@ impl CosmicAppList {
         &mut self,
         id: u32,
         parent_window_id: window::Id,
-        is_hover: bool,
     ) -> cosmic::app::Task<Message> {
         let Some(toplevel_group) = self
             .active_list
@@ -694,7 +690,6 @@ impl CosmicAppList {
             dock_item: toplevel_group.clone(),
             popup_type: PopupType::ToplevelList,
         });
-        self.hover_popup = is_hover;
         cosmic::surface::surface_task(cosmic::surface::action::app_popup(
             |_| Default::default(),
             move |app: &mut Self| {
@@ -734,16 +729,6 @@ impl CosmicAppList {
                         )
                         .max_height(window_spacing * 2.0 + TOPLEVEL_BUTTON_HEIGHT),
                 };
-                if is_hover {
-                    // Preview-only: the popup must be fully pointer-transparent so
-                    // hovering another icon still fires (and switches the preview)
-                    // instead of the popup swallowing the pointer. That needs BOTH
-                    // no grab AND an empty input region — otherwise the popup sits
-                    // on top and eats enter/exit over the panel. Click popups keep
-                    // their grab + input so click-outside dismisses them.
-                    popup_settings.grab = false;
-                    popup_settings.input_zone = Some(Vec::new());
-                }
                 popup_settings
             },
             None,
@@ -1073,7 +1058,6 @@ impl cosmic::Application for CosmicAppList {
                     ..
                 }) = self.popup.take()
                 {
-                    self.hover_popup = false;
                     if parent == parent_window_id {
                         return destroy_popup(popup_id);
                     } else {
@@ -1082,25 +1066,16 @@ impl cosmic::Application for CosmicAppList {
                         return Task::batch([destroy_popup(popup_id), destroy_popup(parent)]);
                     }
                 }
-                return self.open_windows_popup(id, parent_window_id, false);
+                return self.open_windows_popup(id, parent_window_id);
             }
             Message::HoverPreviewEnter(id, parent_window_id) => {
-                self.hover_pending = Some(id);
-                // Already previewing another app? Switch to this one immediately
-                // (no debounce) — the debounce only guards the FIRST open.
-                if self.hover_popup {
-                    if self.popup.as_ref().map(|p| p.dock_item.id) == Some(id) {
-                        // Same app already shown; nothing to do.
-                        return Task::none();
-                    }
-                    if let Some(old) = self.popup.take() {
-                        return Task::batch([
-                            destroy_popup(old.id),
-                            self.open_windows_popup(id, parent_window_id, true),
-                        ]);
-                    }
+                // Don't stack onto an already-open popup: an open (grabbing) popup
+                // is interactive and dismissed by clicking out, like a click one.
+                if self.popup.is_some() {
+                    return Task::none();
                 }
-                // First open: debounce so a quick sweep across icons doesn't flash.
+                self.hover_pending = Some(id);
+                // Debounce so a quick sweep across icons doesn't pop up windows.
                 return iced::Task::perform(
                     async move { sleep(Duration::from_millis(350)).await },
                     move |()| Message::HoverPreviewShow(id, parent_window_id),
@@ -1110,22 +1085,14 @@ impl cosmic::Application for CosmicAppList {
             Message::HoverPreviewShow(id, parent_window_id) => {
                 // Open only if still hovering this icon and nothing else is open.
                 if self.hover_pending == Some(id) && self.popup.is_none() {
-                    return self.open_windows_popup(id, parent_window_id, true);
+                    return self.open_windows_popup(id, parent_window_id);
                 }
             }
             Message::HoverPreviewExit(id) => {
-                // Only act if we left the icon that is the current hover target. If
-                // the pointer moved onto ANOTHER icon, that icon's Enter already
-                // updated hover_pending and handled the switch — so do nothing here
-                // (otherwise we'd close the just-opened popup).
+                // Only cancel a still-pending (not yet opened) preview; an open
+                // popup stays until a window is clicked or the user clicks outside.
                 if self.hover_pending == Some(id) {
                     self.hover_pending = None;
-                    if self.hover_popup {
-                        self.hover_popup = false;
-                        if let Some(popup) = self.popup.take() {
-                            return destroy_popup(popup.id);
-                        }
-                    }
                 }
             }
             Message::ToplevelHoverChanged(handle, entering) => {

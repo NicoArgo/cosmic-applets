@@ -1075,8 +1075,22 @@ impl cosmic::Application for CosmicAppList {
                 return self.open_windows_popup(id, parent_window_id, false);
             }
             Message::HoverPreviewEnter(id, parent_window_id) => {
-                // Debounce so sweeping the pointer across icons doesn't flash popups.
                 self.hover_pending = Some(id);
+                // Already previewing another app? Switch to this one immediately
+                // (no debounce) — the debounce only guards the FIRST open.
+                if self.hover_popup {
+                    if self.popup.as_ref().map(|p| p.dock_item.id) == Some(id) {
+                        // Same app already shown; nothing to do.
+                        return Task::none();
+                    }
+                    if let Some(old) = self.popup.take() {
+                        return Task::batch([
+                            destroy_popup(old.id),
+                            self.open_windows_popup(id, parent_window_id, true),
+                        ]);
+                    }
+                }
+                // First open: debounce so a quick sweep across icons doesn't flash.
                 return iced::Task::perform(
                     async move { sleep(Duration::from_millis(350)).await },
                     move |()| Message::HoverPreviewShow(id, parent_window_id),
@@ -1090,14 +1104,17 @@ impl cosmic::Application for CosmicAppList {
                 }
             }
             Message::HoverPreviewExit(id) => {
+                // Only act if we left the icon that is the current hover target. If
+                // the pointer moved onto ANOTHER icon, that icon's Enter already
+                // updated hover_pending and handled the switch — so do nothing here
+                // (otherwise we'd close the just-opened popup).
                 if self.hover_pending == Some(id) {
                     self.hover_pending = None;
-                }
-                // Close only a hover-opened popup; leave click-opened popups alone.
-                if self.hover_popup {
-                    self.hover_popup = false;
-                    if let Some(popup) = self.popup.take() {
-                        return destroy_popup(popup.id);
+                    if self.hover_popup {
+                        self.hover_popup = false;
+                        if let Some(popup) = self.popup.take() {
+                            return destroy_popup(popup.id);
+                        }
                     }
                 }
             }

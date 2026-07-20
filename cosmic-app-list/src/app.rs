@@ -308,6 +308,9 @@ impl DockItem {
                 launch_on_preferred_gpu(desktop_info, gpus)
                     .unwrap_or(Message::Popup(*id, window_id))
             })
+            // POP Flow: hover an app icon to preview its window(s).
+            .on_enter(Message::HoverPreviewEnter(*id, window_id))
+            .on_exit(Message::HoverPreviewExit(*id))
             .into()
         } else {
             icon_button.into()
@@ -379,6 +382,11 @@ struct CosmicAppList {
     hovered_toplevel: Option<ExtForeignToplevelHandleV1>,
     overflow_favorites_popup: Option<window::Id>,
     overflow_active_popup: Option<window::Id>,
+    /// POP Flow: the app id awaiting its hover-preview debounce, if any.
+    hover_pending: Option<u32>,
+    /// POP Flow: whether the currently-open popup is a hover preview (so it is
+    /// dismissed on hover-exit, unlike a click-opened popup).
+    hover_popup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -395,6 +403,12 @@ enum Message {
     Popup(u32, window::Id),
     Pressed(window::Id),
     ToplevelListPopup(u32, window::Id),
+    /// POP Flow: pointer entered an app icon — start the hover-preview debounce.
+    HoverPreviewEnter(u32, window::Id),
+    /// POP Flow: debounce elapsed — open the hover preview if still hovered.
+    HoverPreviewShow(u32, window::Id),
+    /// POP Flow: pointer left an app icon — cancel/close the hover preview.
+    HoverPreviewExit(u32),
     ToplevelHoverChanged(ExtForeignToplevelHandleV1, bool),
     GpuRequest(Option<Vec<Gpu>>),
     CloseRequested(window::Id),
@@ -643,6 +657,89 @@ fn find_desktop_entries<'a>(
 }
 
 impl CosmicAppList {
+    /// POP Flow: open the windows-preview popup for an app (shared by the
+    /// click path and the hover path). Captures a fresh thumbnail per window,
+    /// anchors the popup to the icon's rectangle, and records whether it was
+    /// opened by hover (so hover-exit can dismiss it). No-op if the app has no
+    /// open windows or its rectangle isn't known yet.
+    fn open_windows_popup(
+        &mut self,
+        id: u32,
+        parent_window_id: window::Id,
+        is_hover: bool,
+    ) -> cosmic::app::Task<Message> {
+        let Some(toplevel_group) = self
+            .active_list
+            .iter()
+            .chain(self.pinned_list.iter())
+            .find(|t| t.id == id)
+        else {
+            return Task::none();
+        };
+        if toplevel_group.toplevels.is_empty() {
+            return Task::none();
+        }
+        for (info, _) in &toplevel_group.toplevels {
+            if let Some(tx) = self.wayland_sender.as_ref() {
+                let _ = tx.send(WaylandRequest::Screencopy(info.foreign_toplevel.clone()));
+            }
+        }
+        let Some(rectangle) = self.rectangles.get(&toplevel_group.id.into()).copied() else {
+            return Task::none();
+        };
+        let new_id = window::Id::unique();
+        self.popup = Some(Popup {
+            parent: parent_window_id,
+            id: new_id,
+            dock_item: toplevel_group.clone(),
+            popup_type: PopupType::ToplevelList,
+        });
+        self.hover_popup = is_hover;
+        cosmic::surface::surface_task(cosmic::surface::action::app_popup(
+            |_| Default::default(),
+            move |app: &mut Self| {
+                let mut popup_settings = app
+                    .core
+                    .applet
+                    .get_popup_settings(parent_window_id, new_id, None, None, None);
+                let iced::Rectangle {
+                    x,
+                    y,
+                    width,
+                    height,
+                } = rectangle;
+                popup_settings.positioner.anchor_rect = iced::Rectangle::<i32> {
+                    x: x as i32,
+                    y: y as i32,
+                    width: width as i32,
+                    height: height as i32,
+                };
+                let max_windows = 7.0;
+                let window_spacing = 8.0;
+                popup_settings.positioner.size_limits = match app.core.applet.anchor {
+                    PanelAnchor::Right | PanelAnchor::Left => Limits::NONE
+                        .min_width(100.0)
+                        .min_height(30.0)
+                        .max_width(window_spacing * 2.0 + TOPLEVEL_BUTTON_WIDTH)
+                        .max_height(
+                            TOPLEVEL_BUTTON_HEIGHT * max_windows
+                                + window_spacing * (max_windows + 1.0),
+                        ),
+                    PanelAnchor::Bottom | PanelAnchor::Top => Limits::NONE
+                        .min_width(30.0)
+                        .min_height(100.0)
+                        .max_width(
+                            TOPLEVEL_BUTTON_WIDTH * max_windows
+                                + window_spacing * (max_windows + 1.0),
+                        )
+                        .max_height(window_spacing * 2.0 + TOPLEVEL_BUTTON_HEIGHT),
+                };
+                popup_settings
+            },
+            None,
+        ))
+    }
+
     // Cache all desktop entries to use when new apps are added to the dock.
     fn update_desktop_entries(&mut self) {
         self.desktop_entries = fde::Iter::new(fde::default_paths())
@@ -966,6 +1063,7 @@ impl cosmic::Application for CosmicAppList {
                     ..
                 }) = self.popup.take()
                 {
+                    self.hover_popup = false;
                     if parent == parent_window_id {
                         return destroy_popup(popup_id);
                     } else {
@@ -974,80 +1072,33 @@ impl cosmic::Application for CosmicAppList {
                         return Task::batch([destroy_popup(popup_id), destroy_popup(parent)]);
                     }
                 }
-                if let Some(toplevel_group) = self
-                    .active_list
-                    .iter()
-                    .chain(self.pinned_list.iter())
-                    .find(|t| t.id == id)
-                {
-                    for (info, _) in &toplevel_group.toplevels {
-                        if let Some(tx) = self.wayland_sender.as_ref() {
-                            let _ =
-                                tx.send(WaylandRequest::Screencopy(info.foreign_toplevel.clone()));
-                        }
+                return self.open_windows_popup(id, parent_window_id, false);
+            }
+            Message::HoverPreviewEnter(id, parent_window_id) => {
+                // Debounce so sweeping the pointer across icons doesn't flash popups.
+                self.hover_pending = Some(id);
+                return iced::Task::perform(
+                    async move { sleep(Duration::from_millis(350)).await },
+                    move |()| Message::HoverPreviewShow(id, parent_window_id),
+                )
+                .map(cosmic::action::app);
+            }
+            Message::HoverPreviewShow(id, parent_window_id) => {
+                // Open only if still hovering this icon and nothing else is open.
+                if self.hover_pending == Some(id) && self.popup.is_none() {
+                    return self.open_windows_popup(id, parent_window_id, true);
+                }
+            }
+            Message::HoverPreviewExit(id) => {
+                if self.hover_pending == Some(id) {
+                    self.hover_pending = None;
+                }
+                // Close only a hover-opened popup; leave click-opened popups alone.
+                if self.hover_popup {
+                    self.hover_popup = false;
+                    if let Some(popup) = self.popup.take() {
+                        return destroy_popup(popup.id);
                     }
-
-                    let Some(rectangle) = self.rectangles.get(&toplevel_group.id.into()).copied()
-                    else {
-                        return Task::none();
-                    };
-                    let new_id = window::Id::unique();
-                    self.popup = Some(Popup {
-                        parent: parent_window_id,
-                        id: new_id,
-                        dock_item: toplevel_group.clone(),
-                        popup_type: PopupType::ToplevelList,
-                    });
-                    let popup_task =
-                        cosmic::surface::surface_task(cosmic::surface::action::app_popup(
-                            |_| Default::default(),
-                            move |app: &mut Self| {
-                                let mut popup_settings = app.core.applet.get_popup_settings(
-                                    parent_window_id,
-                                    new_id,
-                                    None,
-                                    None,
-                                    None,
-                                );
-                                let iced::Rectangle {
-                                    x,
-                                    y,
-                                    width,
-                                    height,
-                                } = rectangle;
-                                popup_settings.positioner.anchor_rect = iced::Rectangle::<i32> {
-                                    x: x as i32,
-                                    y: y as i32,
-                                    width: width as i32,
-                                    height: height as i32,
-                                };
-                                let max_windows = 7.0;
-                                let window_spacing = 8.0;
-                                popup_settings.positioner.size_limits = match app.core.applet.anchor
-                                {
-                                    PanelAnchor::Right | PanelAnchor::Left => Limits::NONE
-                                        .min_width(100.0)
-                                        .min_height(30.0)
-                                        .max_width(window_spacing * 2.0 + TOPLEVEL_BUTTON_WIDTH)
-                                        .max_height(
-                                            TOPLEVEL_BUTTON_HEIGHT * max_windows
-                                                + window_spacing * (max_windows + 1.0),
-                                        ),
-                                    PanelAnchor::Bottom | PanelAnchor::Top => Limits::NONE
-                                        .min_width(30.0)
-                                        .min_height(100.0)
-                                        .max_width(
-                                            TOPLEVEL_BUTTON_WIDTH * max_windows
-                                                + window_spacing * (max_windows + 1.0),
-                                        )
-                                        .max_height(window_spacing * 2.0 + TOPLEVEL_BUTTON_HEIGHT),
-                                };
-                                popup_settings
-                            },
-                            None,
-                        ));
-
-                    return popup_task;
                 }
             }
             Message::ToplevelHoverChanged(handle, entering) => {

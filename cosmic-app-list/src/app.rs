@@ -735,11 +735,14 @@ impl CosmicAppList {
                         .max_height(window_spacing * 2.0 + TOPLEVEL_BUTTON_HEIGHT),
                 };
                 if is_hover {
-                    // A hover preview must NOT grab the pointer, otherwise the
-                    // grab swallows enter/exit on the other icons and hovering a
-                    // different app can't switch the preview. Click popups keep
-                    // their grab (so click-outside dismisses them).
+                    // Preview-only: the popup must be fully pointer-transparent so
+                    // hovering another icon still fires (and switches the preview)
+                    // instead of the popup swallowing the pointer. That needs BOTH
+                    // no grab AND an empty input region — otherwise the popup sits
+                    // on top and eats enter/exit over the panel. Click popups keep
+                    // their grab + input so click-outside dismisses them.
                     popup_settings.grab = false;
+                    popup_settings.input_zone = Some(Vec::new());
                 }
                 popup_settings
             },

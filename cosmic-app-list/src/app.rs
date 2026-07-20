@@ -734,6 +734,13 @@ impl CosmicAppList {
                         )
                         .max_height(window_spacing * 2.0 + TOPLEVEL_BUTTON_HEIGHT),
                 };
+                if is_hover {
+                    // A hover preview must NOT grab the pointer, otherwise the
+                    // grab swallows enter/exit on the other icons and hovering a
+                    // different app can't switch the preview. Click popups keep
+                    // their grab (so click-outside dismisses them).
+                    popup_settings.grab = false;
+                }
                 popup_settings
             },
             None,

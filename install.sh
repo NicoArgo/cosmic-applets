@@ -19,10 +19,17 @@ BIN="target/release/cosmic-app-list"
 echo "==> Installing to /usr/bin/cosmic-app-list (replaces the symlink; needs sudo)..."
 sudo install -m 0755 "$BIN" /usr/bin/cosmic-app-list
 
-# Keep the auto-reapply golden copy in sync when one is present.
-if [ -f /usr/local/lib/pop-flow/cosmic-app-list ]; then
+# Keep the auto-reapply golden copy in sync, or say out loud that this install
+# is temporary — silence here used to hide the fact that a package update wipes
+# the feature (dpkg owns /usr/bin/cosmic-app-list and restores it as a symlink).
+GOLDEN=/usr/local/lib/pop-flow/cosmic-app-list
+if [ -f "$GOLDEN" ]; then
     echo "==> Refreshing auto-reapply golden copy"
-    sudo install -m 0755 "$BIN" /usr/local/lib/pop-flow/cosmic-app-list
+    sudo install -m 0755 "$BIN" "$GOLDEN"
+else
+    echo "!! No auto-reapply hook installed: the next cosmic-applets package"
+    echo "   update will restore the stock symlink and drop this applet."
+    echo "   Run ./setup-auto-reapply.sh to make this install stick."
 fi
 
 echo "==> Restarting the panel to reload the applet..."

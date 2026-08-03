@@ -1166,6 +1166,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-applet-show-desktop"
+version = "0.1.0"
+dependencies = [
+ "cosmic-client-toolkit",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "rust-embed",
+ "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cosmic-applet-status-area"
 version = "1.0.15"
 dependencies = [

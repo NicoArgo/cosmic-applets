@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Show Desktop
+Comment=Minimize every window on this workspace, and bring back the same ones
+Type=Application
+Exec=cosmic-applet-show-desktop
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Desktop;Minimize;
+Icon=com.popflow.CosmicAppletShowDesktop
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=1

@@ -32,8 +32,34 @@ else
     echo "   Run ./setup-auto-reapply.sh to make this install stick."
 fi
 
-echo "==> Restarting the panel to reload the applet..."
+# --- show-desktop applet ---------------------------------------------------
+# This one is NEW software rather than a replacement, so it installs under
+# /usr/local (which is on XDG_DATA_DIRS) and needs no auto-reapply hook: a
+# package update cannot restore a file dpkg never owned.
+echo
+echo "==> Building (cargo build --release -p cosmic-applet-show-desktop)..."
+cargo build --release -p cosmic-applet-show-desktop
+
+SD_BIN="target/release/cosmic-applet-show-desktop"
+[ -f "$SD_BIN" ] || { echo "Build failed: $SD_BIN not found"; exit 1; }
+
+SD_ID=com.popflow.CosmicAppletShowDesktop
+echo "==> Installing the show-desktop applet (needs sudo)..."
+sudo install -Dm 0755 "$SD_BIN" /usr/local/bin/cosmic-applet-show-desktop
+sudo install -Dm 0644 "cosmic-applet-show-desktop/data/$SD_ID.desktop" \
+    "/usr/local/share/applications/$SD_ID.desktop"
+sudo install -Dm 0644 \
+    "cosmic-applet-show-desktop/data/icons/scalable/apps/$SD_ID.svg" \
+    "/usr/local/share/icons/hicolor/scalable/apps/$SD_ID.svg"
+sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
+
+echo "==> Restarting the panel to reload the applets..."
 pkill -x cosmic-panel 2>/dev/null || true
 
-echo "==> Done. Hover a running app's icon in the panel to preview its window(s)."
+echo
+echo "==> Done."
+echo "    Hover a running app's icon in the panel to preview its window(s)."
+echo "    For the show-desktop button, add it in Settings -> Desktop -> Panel"
+echo "    -> Configure panel applets. It is not added automatically, because"
+echo "    that would mean rewriting your panel configuration."
 echo "    (If the panel doesn't come back on its own, log out and back in.)"

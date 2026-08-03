@@ -8,6 +8,7 @@ members = [
     "cosmic-applet-battery",
     "cosmic-applet-bluetooth",
     "cosmic-applet-minimize",
+    "cosmic-applet-show-desktop",
     "cosmic-applet-network",
     "cosmic-applet-notifications",
     "cosmic-applet-power",

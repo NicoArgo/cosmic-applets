@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- A desktop with the windows swept aside: the frame stays, the content is
+       gone. Symbolic, so the panel recolors it with the theme. -->
+  <g fill="currentColor">
+    <path d="M2 3h12a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0 1v6h12V4H2z"/>
+    <path d="M5.5 13h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1z"/>
+    <path d="M4 6h3v1H4zM4 8h5v1H4z" opacity=".45"/>
+  </g>
+</svg>

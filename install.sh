@@ -62,7 +62,8 @@ echo "    Hover a running app's icon in the panel to preview its window(s)."
 echo "    For the show-desktop button, add it in Settings -> Desktop -> Panel"
 echo "    -> Configure panel applets. It is not added automatically, because"
 echo "    that would mean rewriting your panel configuration."
-    echo
-    echo "    The same toggle from a shortcut or a gesture:"
-    echo "        cosmic-applet-show-desktop --toggle"
+echo
+echo "    The same toggle, for a keyboard shortcut or a gesture:"
+echo "        cosmic-applet-show-desktop --toggle"
+echo
 echo "    (If the panel doesn't come back on its own, log out and back in.)"

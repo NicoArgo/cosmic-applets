@@ -5,6 +5,8 @@
 
 mod localize;
 pub mod show_desktop;
+pub mod state_file;
+pub mod toggle;
 pub(crate) mod wayland_handler;
 pub(crate) mod wayland_subscription;
 
@@ -16,14 +18,24 @@ use crate::{
 use cosmic::{
     Element,
     app::{self, Core},
-    cctk::{
-        sctk::reexports::calloop,
-        wayland_protocols::ext::foreign_toplevel_list::v1::client::ext_foreign_toplevel_handle_v1::ExtForeignToplevelHandleV1,
-    },
+    cctk::sctk::reexports::calloop,
     iced::{self, Limits, Subscription, id::Id as WidgetId},
     widget::{autosize::autosize, tooltip},
 };
 use std::sync::LazyLock;
+
+/// The windows the decision runs against, keyed by the compositor's stable
+/// identifier rather than the Wayland handle — that is what the shared state
+/// file can hold.
+pub(crate) fn to_windows(entries: &[WindowEntry]) -> Vec<Window<String>> {
+    entries
+        .iter()
+        .map(|entry| Window {
+            id: entry.identifier.clone(),
+            minimized: entry.minimized,
+        })
+        .collect()
+}
 
 static AUTOSIZE_MAIN_ID: LazyLock<WidgetId> = LazyLock::new(|| WidgetId::new("autosize-main"));
 
@@ -37,7 +49,10 @@ struct ShowDesktopApplet {
     core: Core,
     tx: Option<calloop::channel::Sender<WaylandRequest>>,
     windows: Vec<WindowEntry>,
-    state: ShowDesktop<ExtForeignToplevelHandleV1>,
+    /// Whether the next press restores. Cached from the shared state file so
+    /// the icon does not read a file on every frame; refreshed whenever the
+    /// window list changes, which a toggle by any route always causes.
+    showing: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -94,41 +109,47 @@ impl cosmic::Application for ShowDesktopApplet {
                 WaylandUpdate::Finished => {
                     self.tx = None;
                     self.windows.clear();
-                    // The thread is gone, so nothing we remember can be acted
-                    // on any more. Forgetting leaves the windows exactly where
-                    // they are; it only resets what the next press means.
-                    self.state.forget();
+                    self.showing = false;
                 }
                 WaylandUpdate::Windows(windows) => {
                     self.windows = windows;
+
                     // Windows we put away can be closed while the desktop is
-                    // showing. Once the last one goes, there is nothing to come
-                    // back to and the button should offer to minimize again.
-                    let known: Vec<_> = self
-                        .windows
-                        .iter()
-                        .map(|entry| Window {
-                            id: entry.handle.clone(),
-                            minimized: entry.minimized,
-                        })
-                        .collect();
-                    self.state.retain_existing(&known);
+                    // showing. Once the last one goes there is nothing to come
+                    // back to, and the button should offer to minimize again.
+                    let mut state = ShowDesktop::from_hidden(state_file::load());
+                    state.retain_existing(&to_windows(&self.windows));
+                    state_file::save(state.hidden());
+                    self.showing = state.is_showing_desktop();
                 }
             },
             Message::Press => {
-                let windows: Vec<_> = self
-                    .windows
-                    .iter()
-                    .map(|entry| Window {
-                        id: entry.handle.clone(),
-                        minimized: entry.minimized,
-                    })
-                    .collect();
+                let windows = to_windows(&self.windows);
 
-                for step in self.state.toggle(&windows) {
-                    self.send(match step {
-                        Step::Minimize(handle) => WaylandRequest::Minimize(handle),
-                        Step::Unminimize(handle) => WaylandRequest::Unminimize(handle),
+                // The file, not this struct, is the source of truth: a touchpad
+                // gesture runs the same toggle from another process, and
+                // whichever acted second would otherwise restore the wrong set.
+                let mut state = ShowDesktop::from_hidden(state_file::load());
+                let steps = state.toggle(&windows);
+                state_file::save(state.hidden());
+                self.showing = state.is_showing_desktop();
+
+                for step in steps {
+                    let (identifier, minimize) = match step {
+                        Step::Minimize(id) => (id, true),
+                        Step::Unminimize(id) => (id, false),
+                    };
+                    let Some(entry) = self
+                        .windows
+                        .iter()
+                        .find(|entry| entry.identifier == identifier)
+                    else {
+                        continue;
+                    };
+                    self.send(if minimize {
+                        WaylandRequest::Minimize(entry.handle.clone())
+                    } else {
+                        WaylandRequest::Unminimize(entry.handle.clone())
                     });
                 }
             }
@@ -137,7 +158,7 @@ impl cosmic::Application for ShowDesktopApplet {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let showing = self.state.is_showing_desktop();
+        let showing = self.showing;
         // Two icons rather than one: with a single icon there is no way to tell
         // "press to hide" from "press to bring back", and the button is the
         // only thing on screen once the desktop is showing.

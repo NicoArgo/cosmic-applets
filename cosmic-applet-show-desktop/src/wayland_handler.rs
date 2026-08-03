@@ -78,6 +78,7 @@ impl AppData {
                 }
                 Some(WindowEntry {
                     handle: info.foreign_toplevel.clone(),
+                    identifier: info.identifier.clone(),
                     minimized: info
                         .state
                         .contains(&zcosmic_toplevel_handle_v1::State::Minimized),

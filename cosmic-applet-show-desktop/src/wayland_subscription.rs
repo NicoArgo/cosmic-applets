@@ -45,6 +45,10 @@ pub fn wayland_subscription() -> iced::Subscription<WaylandUpdate> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WindowEntry {
     pub handle: ExtForeignToplevelHandleV1,
+    /// The compositor's stable string for this window. Carried alongside the
+    /// handle because the remembered set is shared with another process through
+    /// a file, and a Wayland object cannot cross that boundary.
+    pub identifier: String,
     pub minimized: bool,
 }
 

@@ -44,6 +44,17 @@ impl<Id: Clone + PartialEq> ShowDesktop<Id> {
         Self { hidden: Vec::new() }
     }
 
+    /// Resume from a remembered set — the button and the `--toggle` invocation
+    /// are different processes and hand this back and forth through a file.
+    pub fn from_hidden(hidden: Vec<Id>) -> Self {
+        Self { hidden }
+    }
+
+    /// The remembered set, to be handed back to whoever stores it.
+    pub fn hidden(&self) -> &[Id] {
+        &self.hidden
+    }
+
     /// Whether the next press will restore rather than minimize.
     pub fn is_showing_desktop(&self) -> bool {
         !self.hidden.is_empty()

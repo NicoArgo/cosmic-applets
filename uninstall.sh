@@ -4,9 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [ -f /usr/local/lib/pop-flow/cosmic-app-list ]; then
-    echo "==> Removing auto-reapply golden copy (needs sudo)..."
-    sudo rm -f /usr/local/lib/pop-flow/cosmic-app-list
+# Turn off auto-reapply first, or the next package operation would re-patch the
+# binary right after we restore the original. Delegating to the script that owns
+# those paths rather than repeating them: this used to remove only the golden
+# copy, leaving a root-owned APT hook behind for good.
+if [ -x ./remove-auto-reapply.sh ]; then
+    ./remove-auto-reapply.sh
 fi
 
 echo "==> Restoring /usr/bin/cosmic-app-list -> cosmic-applets symlink (needs sudo)..."

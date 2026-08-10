@@ -73,9 +73,20 @@ struct SessionData {
     session_data: ScreencopySessionData,
 }
 
+/// Per-frame data attached to the Wayland frame object.
+///
+/// It deliberately holds **no** reference back to the capture session. It used
+/// to keep a `CaptureSession` clone, and since the frame object outlives the
+/// capture, that clone kept the session's `Arc` alive forever — so its `Drop`,
+/// the only thing that sends `destroy` to the compositor, never ran. Every
+/// capture leaked a session and its buffers on both sides of the protocol.
+///
+/// The session is recovered through `CaptureFrame::session()` instead, which
+/// cctk already keeps as a weak reference for exactly this reason. Same bug and
+/// same fix as `cosmic-app-list` (`3446f017`), which leaked far faster because
+/// it captures on hover while this one captures on minimize.
 struct FrameData {
     frame_data: ScreencopyFrameData,
-    session: CaptureSession,
 }
 
 impl Session {
@@ -204,7 +215,6 @@ impl CaptureData {
             &self.qh,
             FrameData {
                 frame_data: ScreencopyFrameData::default(),
-                session: capture_session.clone(),
             },
         );
         self.conn.flush().unwrap();
@@ -522,10 +532,17 @@ impl ScreencopyHandler for AppData {
         screencopy_frame: &CaptureFrame,
         _frame: Frame,
     ) {
-        let session = &screencopy_frame.data::<FrameData>().unwrap().session;
-        Session::for_session(session).unwrap().update(|data| {
-            data.res = Some(Ok(()));
-        });
+        // A capture whose session has already gone is a no-op, not a panic: this
+        // runs on the Wayland thread, and taking it down would take the applet's
+        // window tracking with it.
+        let Some(session) = screencopy_frame.session::<FrameData>() else {
+            return;
+        };
+        if let Some(session) = Session::for_session(&session) {
+            session.update(|data| {
+                data.res = Some(Ok(()));
+            });
+        }
     }
 
     fn failed(
@@ -536,10 +553,14 @@ impl ScreencopyHandler for AppData {
         reason: WEnum<FailureReason>,
     ) {
         // TODO send message to thread
-        let session = &screencopy_frame.data::<FrameData>().unwrap().session;
-        Session::for_session(session).unwrap().update(|data| {
-            data.res = Some(Err(reason));
-        });
+        let Some(session) = screencopy_frame.session::<FrameData>() else {
+            return;
+        };
+        if let Some(session) = Session::for_session(&session) {
+            session.update(|data| {
+                data.res = Some(Err(reason));
+            });
+        }
     }
 
     fn stopped(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _session: &CaptureSession) {}

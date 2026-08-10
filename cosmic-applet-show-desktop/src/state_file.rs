@@ -59,8 +59,22 @@ pub fn save(identifiers: &[String]) {
         }
         return;
     }
-    if let Err(err) = std::fs::write(&path, encode(identifiers)) {
-        tracing::warn!("could not write {}: {err}", path.display());
+    // Written beside the file and renamed over it, because the whole point of
+    // this file is that two processes share it: the panel button and the
+    // `--toggle` of the gesture. `write` truncates in place, so a reader that
+    // arrives mid-write would see half a set and put back half the windows.
+    // A rename is atomic on the same filesystem — a reader sees the old set or
+    // the new one, never a torn one.
+    let tmp = path.with_extension("tmp");
+    if let Err(err) = std::fs::write(&tmp, encode(identifiers)) {
+        tracing::warn!("could not write {}: {err}", tmp.display());
+        return;
+    }
+    if let Err(err) = std::fs::rename(&tmp, &path) {
+        tracing::warn!("could not replace {}: {err}", path.display());
+        // Leaving a stray .tmp behind would be worse than the failed write:
+        // nothing ever reads it, and nothing else would clean it up.
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -96,6 +110,34 @@ mod tests {
     fn a_missing_or_empty_file_means_nothing_is_put_away() {
         assert!(parse("").is_empty());
         assert!(parse("\n\n").is_empty());
+    }
+
+    #[test]
+    fn a_round_trip_through_the_real_file_leaves_nothing_behind() {
+        // The write goes through a temporary and a rename, so this checks both
+        // halves: that the set survives, and that the temporary does not.
+        let dir = std::env::temp_dir().join("pop-flow-show-desktop-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        // SAFETY: cargo runs tests on several threads, so what makes this sound
+        // is that no other test in this crate reads XDG_RUNTIME_DIR — the
+        // show_desktop ones are pure logic over an in-memory set. A test that
+        // starts reading it has to take a path parameter instead.
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", &dir) };
+
+        let identifiers = vec!["toplevel-1".to_string(), "toplevel-2".to_string()];
+        save(&identifiers);
+        assert_eq!(load(), identifiers);
+        assert!(
+            !dir.join(format!("{FILE_NAME}.tmp")).exists(),
+            "the temporary must be renamed away, not left for someone to find"
+        );
+
+        // And emptying it removes the file rather than leaving an empty one.
+        save(&[]);
+        assert!(load().is_empty());
+        assert!(!path().unwrap().exists());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

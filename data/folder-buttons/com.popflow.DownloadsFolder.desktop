@@ -1,0 +1,15 @@
+# See com.popflow.PicturesFolder.desktop -- same shape, other folder.
+[Desktop Entry]
+Name=Downloads
+Name[pt_BR]=Downloads
+Name[pt]=Downloads
+Comment=Open the Downloads folder
+Comment[pt_BR]=Abre a pasta Downloads
+Comment[pt]=Abre a pasta Downloads
+Type=Application
+Exec=cosmic-files "$(xdg-user-dir DOWNLOAD)"
+Terminal=false
+Categories=COSMIC;
+Icon=folder-download-symbolic
+StartupNotify=true
+NoDisplay=true

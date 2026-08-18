@@ -1,0 +1,19 @@
+# The entry the panel lists as an applet. Pressing it is handled by the
+# entry named in Exec -- see com.popflow.PicturesFolder.desktop.
+[Desktop Entry]
+Name=Downloads Folder Button
+Name[pt_BR]=Botão da pasta Downloads
+Name[pt]=Botão da pasta Downloads
+Comment=Open your Downloads folder in the file manager
+Comment[pt_BR]=Abre sua pasta Downloads no gerenciador de arquivos
+Comment[pt]=Abre sua pasta Downloads no gerenciador de arquivos
+Type=Application
+Exec=cosmic-panel-button com.popflow.DownloadsFolder
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Folder;Downloads;
+Icon=folder-download-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=1

@@ -1,0 +1,19 @@
+# The entry the panel lists as an applet. Pressing it is handled by the
+# entry named in Exec -- see com.popflow.PicturesFolder.desktop.
+[Desktop Entry]
+Name=Pictures Folder Button
+Name[pt_BR]=Botão da pasta Imagens
+Name[pt]=Botão da pasta Imagens
+Comment=Open your Pictures folder in the file manager
+Comment[pt_BR]=Abre sua pasta Imagens no gerenciador de arquivos
+Comment[pt]=Abre sua pasta Imagens no gerenciador de arquivos
+Type=Application
+Exec=cosmic-panel-button com.popflow.PicturesFolder
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Folder;Pictures;Images;
+Icon=folder-pictures-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=1

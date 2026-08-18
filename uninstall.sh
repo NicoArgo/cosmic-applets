@@ -24,6 +24,12 @@ sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || t
 echo "!! If it was on your panel, remove it in Settings -> Desktop -> Panel;"
 echo "   the config still lists it and the slot would sit empty."
 
+echo "==> Removing the folder buttons (needs sudo)..."
+sudo rm -f /usr/local/share/applications/com.popflow.CosmicAppletPicturesFolder.desktop \
+           /usr/local/share/applications/com.popflow.PicturesFolder.desktop \
+           /usr/local/share/applications/com.popflow.CosmicAppletDownloadsFolder.desktop \
+           /usr/local/share/applications/com.popflow.DownloadsFolder.desktop
+
 echo "==> Restarting the panel..."
 pkill -x cosmic-panel 2>/dev/null || true
 echo "==> Restored. (Log out/in if the panel doesn't return.)"

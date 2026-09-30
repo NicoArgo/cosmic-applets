@@ -116,9 +116,14 @@ impl cosmic::Application for ShowDesktopApplet {
         } else {
             Subscription::none()
         };
-        // The pointer usually leaves this tiny surface in the same motion that
-        // leaves the button; the surface's CursorLeft is what reliably says so.
+        // Hover comes from the surface itself, not a mouse area: the button
+        // fills this tiny surface, so the pointer leaves both in one motion
+        // and a mouse area never sees the exit — it then stays "hovered" and
+        // ignores the next entry, so the effect worked only once.
         let left = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Mouse(
+                iced::mouse::Event::CursorEntered | iced::mouse::Event::CursorMoved { .. },
+            ) => Some(Message::Hover(true)),
             iced::Event::Mouse(iced::mouse::Event::CursorLeft) => Some(Message::Hover(false)),
             _ => None,
         });
@@ -148,10 +153,12 @@ impl cosmic::Application for ShowDesktopApplet {
                     self.showing = state.is_showing_desktop();
                 }
             },
-            Message::Hover(hovered) => {
+            // Motion repeats Hover(true) on every move; only a change matters.
+            Message::Hover(hovered) if hovered != self.hovered => {
                 self.hovered = hovered;
                 self.last_frame = None;
             }
+            Message::Hover(_) => {}
             Message::Frame(at) => {
                 let dt = self
                     .last_frame
@@ -225,9 +232,7 @@ impl cosmic::Application for ShowDesktopApplet {
             .on_press(Message::Press);
 
         autosize(
-            cosmic::widget::mouse_area(button)
-                .on_enter(Message::Hover(true))
-                .on_exit(Message::Hover(false)),
+            button,
             AUTOSIZE_MAIN_ID.clone(),
         )
         .limits(Limits::NONE.min_width(1.).min_height(1.))

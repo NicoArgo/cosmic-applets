@@ -20,7 +20,7 @@ use cosmic::{
     app::{self, Core},
     cctk::sctk::reexports::calloop,
     iced::{self, Limits, Subscription, id::Id as WidgetId},
-    widget::{autosize::autosize, tooltip},
+    widget::autosize::autosize,
 };
 use std::sync::LazyLock;
 
@@ -53,12 +53,24 @@ struct ShowDesktopApplet {
     /// the icon does not read a file on every frame; refreshed whenever the
     /// window list changes, which a toggle by any route always causes.
     showing: bool,
+    /// Pointer over the button: the icon grows to `HOVER_SCALE`.
+    hovered: bool,
+    /// Current icon scale, animated toward 1.0 or `HOVER_SCALE`.
+    scale: f32,
+    last_frame: Option<std::time::Instant>,
 }
+
+/// How much the icon grows under the pointer, and how long it takes — the
+/// same as the folder buttons next to it.
+const HOVER_SCALE: f32 = 1.25;
+const SCALE_DURATION: f32 = 0.12;
 
 #[derive(Clone, Debug)]
 enum Message {
     Wayland(WaylandUpdate),
     Press,
+    Hover(bool),
+    Frame(std::time::Instant),
 }
 
 impl ShowDesktopApplet {
@@ -82,6 +94,7 @@ impl cosmic::Application for ShowDesktopApplet {
         (
             Self {
                 core,
+                scale: 1.0,
                 ..Default::default()
             },
             app::Task::none(),
@@ -97,7 +110,19 @@ impl cosmic::Application for ShowDesktopApplet {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        wayland_subscription().map(Message::Wayland)
+        let target = if self.hovered { HOVER_SCALE } else { 1.0 };
+        let frames = if (self.scale - target).abs() > f32::EPSILON {
+            iced::window::frames().map(|(_, at)| Message::Frame(at))
+        } else {
+            Subscription::none()
+        };
+        // The pointer usually leaves this tiny surface in the same motion that
+        // leaves the button; the surface's CursorLeft is what reliably says so.
+        let left = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Mouse(iced::mouse::Event::CursorLeft) => Some(Message::Hover(false)),
+            _ => None,
+        });
+        Subscription::batch([wayland_subscription().map(Message::Wayland), frames, left])
     }
 
     fn update(&mut self, message: Message) -> app::Task<Message> {
@@ -123,6 +148,24 @@ impl cosmic::Application for ShowDesktopApplet {
                     self.showing = state.is_showing_desktop();
                 }
             },
+            Message::Hover(hovered) => {
+                self.hovered = hovered;
+                self.last_frame = None;
+            }
+            Message::Frame(at) => {
+                let dt = self
+                    .last_frame
+                    .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32())
+                    .min(1.0 / 30.0);
+                self.last_frame = Some(at);
+                let target = if self.hovered { HOVER_SCALE } else { 1.0 };
+                let step = (HOVER_SCALE - 1.0) * dt / SCALE_DURATION;
+                self.scale = if self.scale < target {
+                    (self.scale + step).min(target)
+                } else {
+                    (self.scale - step).max(target)
+                };
+            }
             Message::Press => {
                 let windows = to_windows(&self.windows);
 
@@ -167,24 +210,24 @@ impl cosmic::Application for ShowDesktopApplet {
         } else {
             "user-desktop-symbolic"
         };
-        let label = if showing {
-            fl!("restore-windows")
-        } else {
-            fl!("show-desktop")
-        };
-
+        let suggested = self.core.applet.suggested_size(true);
+        let icon = cosmic::widget::icon(cosmic::widget::icon::from_name(icon).symbolic(true).handle())
+            .class(cosmic::theme::Svg::custom(|theme| iced::widget::svg::Style {
+                color: Some(theme.cosmic().background(theme.transparent).on.into()),
+            }))
+            .width(iced::Length::Fixed(suggested.0 as f32 * self.scale))
+            .height(iced::Length::Fixed(suggested.1 as f32 * self.scale));
+        // The button keeps its size; only the icon grows, into the padding.
         let button = self
             .core
             .applet
-            .icon_button(icon)
+            .button_from_element(icon, true)
             .on_press(Message::Press);
 
         autosize(
-            tooltip(
-                button,
-                cosmic::widget::text::body(label),
-                tooltip::Position::FollowCursor,
-            ),
+            cosmic::widget::mouse_area(button)
+                .on_enter(Message::Hover(true))
+                .on_exit(Message::Hover(false)),
             AUTOSIZE_MAIN_ID.clone(),
         )
         .limits(Limits::NONE.min_width(1.).min_height(1.))

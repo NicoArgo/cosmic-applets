@@ -112,7 +112,15 @@ impl cosmic::Application for FolderButton {
         } else {
             iced::Subscription::none()
         };
-        iced::Subscription::batch([wayland::subscription().map(Message::Wayland), frames])
+        // The button is most of this tiny surface, so the pointer usually
+        // leaves the surface in the same motion that leaves the button, and
+        // the mouse area never sees a move outside itself to report the exit.
+        // The surface's own CursorLeft is the reliable signal.
+        let left = iced::event::listen_with(|event, _, _| match event {
+            iced::Event::Mouse(iced::mouse::Event::CursorLeft) => Some(Message::Hover(false)),
+            _ => None,
+        });
+        iced::Subscription::batch([wayland::subscription().map(Message::Wayland), frames, left])
     }
 
     fn update(&mut self, message: Message) -> app::Task<Message> {

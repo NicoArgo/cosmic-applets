@@ -75,14 +75,22 @@ systemctl --user enable cosmic-show-desktop-corner.service
 systemctl --user restart cosmic-show-desktop-corner.service
 
 # --- folder buttons --------------------------------------------------------
-# These need no binary of ours at all. cosmic-panel-button -- already on the
-# system, from this very package -- draws a panel button out of a desktop entry
-# and runs that entry's Exec when pressed, which is how the App Library button
-# works. So a folder button is four small files and no code: two applet entries
-# for the panel to list, and the two entries they point at. Under /usr/local
-# for the same reason as show-desktop above: dpkg never owns it, so no package
-# update can take it away and no auto-reapply hook is needed.
+# One applet binary, one argument per folder. Pressing a button brings forward a
+# file-manager window already on that folder (unminimizing it, or switching to
+# its workspace) and only opens a new one when there is none; while such a
+# window exists the label is drawn in the accent color. Under /usr/local for the
+# same reason as show-desktop above: dpkg never owns it, so no package update can
+# take it away and no auto-reapply hook is needed.
 echo
+echo "==> Building (cargo build --release -p cosmic-applet-folder-button)..."
+cargo build --release -p cosmic-applet-folder-button
+FB_BIN="target/release/cosmic-applet-folder-button"
+[ -f "$FB_BIN" ] || { echo "Build failed: $FB_BIN not found"; exit 1; }
+sudo install -Dm 0755 "$FB_BIN" /usr/local/bin/cosmic-applet-folder-button
+# The first version drew these buttons with cosmic-panel-button and needed a
+# second, hidden entry per folder for it to read. Nothing points at them now.
+sudo rm -f /usr/local/share/applications/com.popflow.PicturesFolder.desktop \
+           /usr/local/share/applications/com.popflow.DownloadsFolder.desktop
 echo "==> Installing the Pictures and Downloads folder buttons (needs sudo)..."
 for f in data/folder-buttons/*.desktop; do
     sudo install -Dm 0644 "$f" "/usr/local/share/applications/$(basename "$f")"

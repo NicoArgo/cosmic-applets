@@ -1071,6 +1071,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-applet-folder-button"
+version = "0.1.0"
+dependencies = [
+ "cosmic-client-toolkit",
+ "dirs",
+ "libcosmic",
+ "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cosmic-applet-input-sources"
 version = "1.0.15"
 dependencies = [

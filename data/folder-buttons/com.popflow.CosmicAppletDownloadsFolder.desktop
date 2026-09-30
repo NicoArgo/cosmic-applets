@@ -1,5 +1,6 @@
-# The entry the panel lists as an applet. Pressing it is handled by the
-# entry named in Exec -- see com.popflow.PicturesFolder.desktop.
+# The entry the panel lists as an applet. The button is our own applet
+# (cosmic-applet-folder-button): it brings forward a file-manager window
+# already showing the folder, and only opens one when there is none.
 [Desktop Entry]
 Name=Downloads Folder Button
 Name[pt_BR]=Botão da pasta Downloads
@@ -8,7 +9,7 @@ Comment=Open your Downloads folder in the file manager
 Comment[pt_BR]=Abre sua pasta Downloads no gerenciador de arquivos
 Comment[pt]=Abre sua pasta Downloads no gerenciador de arquivos
 Type=Application
-Exec=cosmic-panel-button com.popflow.DownloadsFolder
+Exec=cosmic-applet-folder-button downloads
 Terminal=false
 Categories=COSMIC;
 Keywords=COSMIC;Applet;Folder;Downloads;

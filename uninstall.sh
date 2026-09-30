@@ -34,7 +34,8 @@ echo "==> Removing the folder buttons (needs sudo)..."
 sudo rm -f /usr/local/share/applications/com.popflow.CosmicAppletPicturesFolder.desktop \
            /usr/local/share/applications/com.popflow.PicturesFolder.desktop \
            /usr/local/share/applications/com.popflow.CosmicAppletDownloadsFolder.desktop \
-           /usr/local/share/applications/com.popflow.DownloadsFolder.desktop
+           /usr/local/share/applications/com.popflow.DownloadsFolder.desktop \
+           /usr/local/bin/cosmic-applet-folder-button
 
 echo "==> Restarting the panel..."
 pkill -x cosmic-panel 2>/dev/null || true

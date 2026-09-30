@@ -15,7 +15,7 @@ use cosmic::{
     app::{self, Core},
     cctk::sctk::reexports::calloop,
     iced::{self, Length, Limits, id::Id as WidgetId},
-    widget::{autosize::autosize, tooltip},
+    widget::autosize::autosize,
 };
 use std::sync::LazyLock;
 
@@ -35,12 +35,23 @@ struct FolderButton {
     name: String,
     tx: Option<calloop::channel::Sender<Request>>,
     windows: Vec<Window<Handle>>,
+    /// Pointer over the button: the icon grows to `HOVER_SCALE`.
+    hovered: bool,
+    /// Current icon scale, animated toward 1.0 or `HOVER_SCALE`.
+    scale: f32,
+    last_frame: Option<std::time::Instant>,
 }
+
+/// How much the icon grows under the pointer, and how long it takes.
+const HOVER_SCALE: f32 = 1.25;
+const SCALE_DURATION: f32 = 0.12;
 
 #[derive(Clone, Debug)]
 enum Message {
     Wayland(Update),
     Press,
+    Hover(bool),
+    Frame(std::time::Instant),
 }
 
 impl FolderButton {
@@ -77,6 +88,9 @@ impl cosmic::Application for FolderButton {
                 name: kind.name(),
                 tx: None,
                 windows: Vec::new(),
+                hovered: false,
+                scale: 1.0,
+                last_frame: None,
             },
             app::Task::none(),
         )
@@ -91,7 +105,14 @@ impl cosmic::Application for FolderButton {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        wayland::subscription().map(Message::Wayland)
+        let target = if self.hovered { HOVER_SCALE } else { 1.0 };
+        // Frames only while the icon is growing or shrinking.
+        let frames = if (self.scale - target).abs() > f32::EPSILON {
+            iced::window::frames().map(|(_, at)| Message::Frame(at))
+        } else {
+            iced::Subscription::none()
+        };
+        iced::Subscription::batch([wayland::subscription().map(Message::Wayland), frames])
     }
 
     fn update(&mut self, message: Message) -> app::Task<Message> {
@@ -102,6 +123,23 @@ impl cosmic::Application for FolderButton {
                 self.windows.clear();
             }
             Message::Wayland(Update::Windows(windows)) => self.windows = windows,
+            Message::Hover(hovered) => {
+                self.hovered = hovered;
+                self.last_frame = None;
+            }
+            Message::Frame(at) => {
+                let dt = self
+                    .last_frame
+                    .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
+                self.last_frame = Some(at);
+                let target = if self.hovered { HOVER_SCALE } else { 1.0 };
+                let step = (HOVER_SCALE - 1.0) * dt / SCALE_DURATION;
+                self.scale = if self.scale < target {
+                    (self.scale + step).min(target)
+                } else {
+                    (self.scale - step).max(target)
+                };
+            }
             Message::Press => {
                 // Resolve again: the folder may have been renamed or moved in
                 // user-dirs.dirs since the applet started.
@@ -141,8 +179,10 @@ impl cosmic::Application for FolderButton {
                     }),
                 }
             }))
-            .width(Length::Fixed(suggested.0 as f32))
-            .height(Length::Fixed(suggested.1 as f32));
+            .width(Length::Fixed(suggested.0 as f32 * self.scale))
+            .height(Length::Fixed(suggested.1 as f32 * self.scale));
+        // The button keeps its size — only the icon inside grows, into the
+        // button's padding, so nothing on the panel shifts.
         let button = self
             .core
             .applet
@@ -150,11 +190,9 @@ impl cosmic::Application for FolderButton {
             .on_press_down(Message::Press);
 
         autosize(
-            tooltip(
-                button,
-                cosmic::widget::text::body(self.name.clone()),
-                tooltip::Position::Bottom,
-            ),
+            cosmic::widget::mouse_area(button)
+                .on_enter(Message::Hover(true))
+                .on_exit(Message::Hover(false)),
             AUTOSIZE_MAIN_ID.clone(),
         )
         .limits(Limits::NONE.min_width(1.).min_height(1.))

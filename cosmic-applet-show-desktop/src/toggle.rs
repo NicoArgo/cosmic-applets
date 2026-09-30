@@ -14,12 +14,8 @@ use crate::{
     wayland_subscription::{WaylandRequest, WaylandUpdate},
 };
 use cosmic::cctk::sctk::reexports::calloop;
-use cosmic::iced::futures::{
-    channel::mpsc,
-    executor::block_on,
-    stream::StreamExt,
-};
-use std::time::Duration;
+use cosmic::iced::futures::channel::mpsc::{self, TryRecvError};
+use std::time::{Duration, Instant};
 
 /// How long to wait for the compositor to describe the current windows.
 ///
@@ -27,6 +23,14 @@ use std::time::Duration;
 /// worse than a slow one — acting on a half-populated list would minimize some
 /// windows and forget the rest.
 const LIST_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The window list is complete once the compositor has been quiet this long.
+///
+/// The Wayland thread sends a fresh list after every window it learns about,
+/// so the first list names only the first window. Acting on it would put one
+/// window away and forget the rest; waiting for the stream to settle gets them
+/// all.
+const SETTLE: Duration = Duration::from_millis(150);
 
 /// How long to let the requests reach the compositor before exiting. The
 /// process owns the Wayland connection, so leaving too early would drop the
@@ -39,21 +43,41 @@ pub fn run() -> Result<(), String> {
 
     let handler = std::thread::spawn(move || wayland_handler(update_tx, calloop_rx));
 
-    // The handler announces itself, then sends the window list once the
-    // compositor has described everything.
-    let deadline = std::time::Instant::now() + LIST_TIMEOUT;
+    // Take lists until they stop coming. Polled rather than awaited, so the
+    // deadline holds even if the compositor never says anything at all.
+    let start = Instant::now();
+    let mut latest: Option<(Vec<_>, Instant)> = None;
     let windows = loop {
-        if std::time::Instant::now() >= deadline {
-            return Err("timed out waiting for the compositor's window list".into());
-        }
-        match block_on(update_rx.next()) {
-            Some(WaylandUpdate::Windows(windows)) => break windows,
-            Some(WaylandUpdate::Init(_)) => continue,
-            Some(WaylandUpdate::Finished) | None => {
+        match update_rx.try_recv() {
+            Ok(WaylandUpdate::Windows(windows)) => {
+                latest = Some((windows, Instant::now()));
+                continue;
+            }
+            Ok(WaylandUpdate::Init(_)) => continue,
+            Ok(WaylandUpdate::Finished) | Err(TryRecvError::Closed) => {
                 return Err("the wayland connection closed".into());
             }
+            Err(TryRecvError::Empty) => {}
         }
+        if let Some((_, at)) = &latest
+            && at.elapsed() >= SETTLE
+        {
+            break latest.take().map(|(windows, _)| windows).unwrap_or_default();
+        }
+        if start.elapsed() >= LIST_TIMEOUT {
+            match latest.take() {
+                Some((windows, _)) => break windows,
+                None => return Err("timed out waiting for the compositor's window list".into()),
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
     };
+    // Stop listening. The Wayland thread keeps reporting changes (including
+    // the ones this toggle is about to cause); with nobody reading, a full
+    // channel used to block it for good — before it ever ran the minimize
+    // requests — and the process hung. A closed channel makes those sends fail
+    // at once instead.
+    drop(update_rx);
 
     let mut state = ShowDesktop::from_hidden(state_file::load());
     let steps = state.toggle(&crate::to_windows(&windows));

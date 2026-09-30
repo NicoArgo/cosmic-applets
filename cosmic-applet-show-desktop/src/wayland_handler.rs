@@ -93,7 +93,11 @@ impl AppData {
             return;
         }
         self.last_sent = windows.clone();
-        if let Err(err) = block_on(self.tx.send(WaylandUpdate::Windows(windows))) {
+        if let Err(err) = block_on(self.tx.send(WaylandUpdate::Windows(windows)))
+            // A `--toggle` stops listening once it has its list; that's not an
+            // error worth reporting.
+            && !err.is_disconnected()
+        {
             tracing::error!("failed to send window list to the applet: {err:?}");
         }
     }

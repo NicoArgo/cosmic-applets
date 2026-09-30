@@ -54,7 +54,7 @@ sudo install -Dm 0644 \
 sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
 
 # --- show-desktop corner --------------------------------------------------
-# A small triangle in the bottom-left corner that runs the same toggle as the
+# A small triangle in the bottom-right corner that runs the same toggle as the
 # show-desktop button. Not an applet: a layer surface that lives for the whole
 # session, so it runs as a systemd *user* service (per user, restarted if the
 # compositor drops it). New software under /usr/local, so no reapply hook.
@@ -108,7 +108,7 @@ echo
 echo "    The Pictures and Downloads buttons are added the same way, in that"
 echo "    same panel-applet list."
 echo
-echo "    The triangle in the bottom-left corner of the screen does the same;"
+echo "    The triangle in the bottom-right corner of the screen does the same;"
 echo "    turn it off with: systemctl --user disable --now cosmic-show-desktop-corner"
 echo
 echo "    The same toggle, for a keyboard shortcut or a gesture:"

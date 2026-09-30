@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! POP Flow — a small triangle in the bottom-left corner of the screen that
+//! POP Flow — a small triangle in the bottom-right corner of the screen that
 //! shows the desktop, like the panel's show-desktop button.
 //!
 //! It doesn't reimplement anything: a click runs
@@ -78,7 +78,7 @@ fn main() {
         Some("pop-flow-show-desktop-corner"),
         None,
     );
-    layer.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
+    layer.set_anchor(Anchor::BOTTOM | Anchor::RIGHT);
     layer.set_size(SIZE, SIZE);
     // -1: sit in the very corner even if something reserves that edge.
     layer.set_exclusive_zone(-1);
@@ -243,10 +243,14 @@ impl Corner {
 
     fn toggle(&self) {
         match std::process::Command::new(TOGGLE).arg("--toggle").spawn() {
-            // Reap it off-thread so no zombie lingers; the result is the
-            // toggle's business, it logs its own failures.
+            // Reap it off-thread so no zombie lingers, and say how it ended:
+            // a toggle that fails silently looks exactly like a dead corner.
             Ok(mut child) => {
-                std::thread::spawn(move || child.wait());
+                std::thread::spawn(move || match child.wait() {
+                    Ok(status) if status.success() => {}
+                    Ok(status) => eprintln!("{TOGGLE} --toggle exited with {status}"),
+                    Err(err) => eprintln!("{TOGGLE} --toggle: {err}"),
+                });
             }
             Err(err) => eprintln!("{TOGGLE} --toggle: {err}"),
         }
@@ -343,7 +347,13 @@ impl SeatHandler for Corner {
         capability: Capability,
     ) {
         if capability == Capability::Pointer && self.pointer.is_none() {
-            self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+            self.pointer = match self.seat_state.get_pointer(qh, &seat) {
+                Ok(pointer) => Some(pointer),
+                Err(err) => {
+                    eprintln!("no pointer: {err}");
+                    None
+                }
+            };
         }
     }
 

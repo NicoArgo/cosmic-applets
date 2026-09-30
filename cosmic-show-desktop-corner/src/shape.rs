@@ -2,8 +2,9 @@
 
 //! The triangle's geometry and color, with no Wayland in sight.
 //!
-//! Coordinates are logical pixels in surface space: origin top-left, y down,
-//! the corner of the screen at (0, SIZE).
+//! Coordinates are logical pixels in surface space: origin top-left, y down.
+//! The surface sits in the bottom-right corner of the screen, so the screen's
+//! corner is at (SIZE, SIZE).
 
 /// Side of the (square) surface. It is also the hit area: the whole corner
 /// triangle of this size answers the pointer, however small the drawing is —
@@ -30,7 +31,8 @@ pub const PRESSED: Look = Look { legs: 19.0, alpha: 1.0, lighten: 0.0 };
 
 /// Whether a logical point is inside the corner triangle with the given legs.
 pub fn inside(x: f64, y: f64, legs: f64) -> bool {
-    x >= 0.0 && y <= SIZE as f64 && x + (SIZE as f64 - y) <= legs
+    let s = SIZE as f64;
+    x <= s && y <= s && (s - x) + (s - y) <= legs
 }
 
 /// Premultiplied ARGB8888 (little-endian bytes: B, G, R, A) for a surface of
@@ -70,7 +72,7 @@ pub fn input_staircase(step: u32) -> Vec<(i32, i32, i32, i32)> {
         .map(|k| {
             let bottom = SIZE - k * step;
             let h = step.min(bottom);
-            (0, (bottom - h) as i32, (SIZE - k * step) as i32, h as i32)
+            ((k * step) as i32, (bottom - h) as i32, (SIZE - k * step) as i32, h as i32)
         })
         .collect()
 }
@@ -94,11 +96,11 @@ mod tests {
     #[test]
     fn corner_is_inside_and_far_side_is_not() {
         let s = SIZE as f64;
-        assert!(inside(0.5, s - 0.5, 12.0));
-        assert!(!inside(s - 1.0, 1.0, 12.0));
+        assert!(inside(s - 0.5, s - 0.5, 12.0));
+        assert!(!inside(1.0, 1.0, 12.0));
         // On the diagonal's outer side.
-        assert!(!inside(10.0, s - 10.0, 12.0));
-        assert!(inside(5.0, s - 5.0, 12.0));
+        assert!(!inside(s - 10.0, s - 10.0, 12.0));
+        assert!(inside(s - 5.0, s - 5.0, 12.0));
     }
 
     #[test]
@@ -108,10 +110,10 @@ mod tests {
             let px = render(HOVER, [1.0, 0.0, 0.0], scale);
             assert_eq!(px.len(), side * side * 4);
             let at = |x: usize, y: usize| &px[(y * side + x) * 4..][..4];
-            // bottom-left pixel: full coverage, premultiplied red.
-            assert_eq!(at(0, side - 1), &[0, 0, 230, 230]);
-            // top-right pixel: nothing.
-            assert_eq!(at(side - 1, 0), &[0, 0, 0, 0]);
+            // bottom-right pixel: full coverage, premultiplied red.
+            assert_eq!(at(side - 1, side - 1), &[0, 0, 230, 230]);
+            // top-left pixel: nothing.
+            assert_eq!(at(0, 0), &[0, 0, 0, 0]);
         }
     }
 

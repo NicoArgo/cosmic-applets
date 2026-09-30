@@ -1,5 +1,5 @@
 [Unit]
-Description=POP Flow — triângulo "mostrar área de trabalho" no canto inferior esquerdo
+Description=POP Flow — triângulo "mostrar área de trabalho" no canto inferior direito
 PartOf=graphical-session.target
 After=graphical-session.target
 

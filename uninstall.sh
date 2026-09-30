@@ -24,6 +24,12 @@ sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || t
 echo "!! If it was on your panel, remove it in Settings -> Desktop -> Panel;"
 echo "   the config still lists it and the slot would sit empty."
 
+echo "==> Removing the show-desktop corner..."
+systemctl --user disable --now cosmic-show-desktop-corner.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/cosmic-show-desktop-corner.service"
+systemctl --user daemon-reload
+sudo rm -f /usr/local/bin/cosmic-show-desktop-corner
+
 echo "==> Removing the folder buttons (needs sudo)..."
 sudo rm -f /usr/local/share/applications/com.popflow.CosmicAppletPicturesFolder.desktop \
            /usr/local/share/applications/com.popflow.PicturesFolder.desktop \

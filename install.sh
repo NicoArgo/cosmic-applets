@@ -53,6 +53,27 @@ sudo install -Dm 0644 \
     "/usr/local/share/icons/hicolor/scalable/apps/$SD_ID.svg"
 sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
 
+# --- show-desktop corner --------------------------------------------------
+# A small triangle in the bottom-left corner that runs the same toggle as the
+# show-desktop button. Not an applet: a layer surface that lives for the whole
+# session, so it runs as a systemd *user* service (per user, restarted if the
+# compositor drops it). New software under /usr/local, so no reapply hook.
+echo
+echo "==> Building (cargo build --release -p cosmic-show-desktop-corner)..."
+cargo build --release -p cosmic-show-desktop-corner
+
+SC_BIN="target/release/cosmic-show-desktop-corner"
+[ -f "$SC_BIN" ] || { echo "Build failed: $SC_BIN not found"; exit 1; }
+
+echo "==> Installing the show-desktop corner (needs sudo)..."
+sudo install -Dm 0755 "$SC_BIN" /usr/local/bin/cosmic-show-desktop-corner
+install -Dm 0644 cosmic-show-desktop-corner/data/cosmic-show-desktop-corner.service \
+    "$HOME/.config/systemd/user/cosmic-show-desktop-corner.service"
+systemctl --user daemon-reload
+systemctl --user enable cosmic-show-desktop-corner.service
+# restart, not start: a reinstall must pick up the new binary.
+systemctl --user restart cosmic-show-desktop-corner.service
+
 # --- folder buttons --------------------------------------------------------
 # These need no binary of ours at all. cosmic-panel-button -- already on the
 # system, from this very package -- draws a panel button out of a desktop entry
@@ -86,6 +107,9 @@ echo "    that would mean rewriting your panel configuration."
 echo
 echo "    The Pictures and Downloads buttons are added the same way, in that"
 echo "    same panel-applet list."
+echo
+echo "    The triangle in the bottom-left corner of the screen does the same;"
+echo "    turn it off with: systemctl --user disable --now cosmic-show-desktop-corner"
 echo
 echo "    The same toggle, for a keyboard shortcut or a gesture:"
 echo "        cosmic-applet-show-desktop --toggle"

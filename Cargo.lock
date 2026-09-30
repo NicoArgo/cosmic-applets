@@ -1527,6 +1527,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-show-desktop-corner"
+version = "0.1.0"
+dependencies = [
+ "smithay-client-toolkit",
+ "wayland-client",
+]
+
+[[package]]
 name = "cosmic-text"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

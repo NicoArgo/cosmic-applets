@@ -1,0 +1,13 @@
+[package]
+name = "cosmic-show-desktop-corner"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "POP Flow — a small triangle in the bottom-left corner that shows the desktop"
+
+# Deliberately not libcosmic: this surface lives for the whole session, so it
+# is a bare layer-shell client drawing into shared memory — no GPU context, a
+# couple of MiB resident.
+[dependencies]
+smithay-client-toolkit = { version = "0.20", default-features = false, features = ["calloop"] }
+wayland-client = "0.31"

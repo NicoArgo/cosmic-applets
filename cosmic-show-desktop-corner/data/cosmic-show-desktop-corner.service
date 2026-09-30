@@ -1,0 +1,12 @@
+[Unit]
+Description=POP Flow — triângulo "mostrar área de trabalho" no canto inferior esquerdo
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/cosmic-show-desktop-corner
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

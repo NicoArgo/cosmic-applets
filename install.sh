@@ -94,13 +94,18 @@ sudo rm -f /usr/local/share/applications/com.popflow.PicturesFolder.desktop \
 echo "==> Installing the Pictures and Downloads folder buttons (needs sudo)..."
 for f in data/folder-buttons/*.desktop; do
     sudo install -Dm 0644 "$f" "/usr/local/share/applications/$(basename "$f")"
-    # ~/.local/share/applications comes first in the desktop-entry search path,
-    # so a copy left there wins over the one we just installed -- silently, and
-    # forever. Say so rather than deleting a file in the user's home.
-    home_copy="$HOME/.local/share/applications/$(basename "$f")"
-    if [ -f "$home_copy" ] && ! cmp -s "$f" "$home_copy"; then
-        echo "    !! $home_copy is older and shadows this install; remove it."
-    fi
+done
+# ~/.local/share/applications comes first in the desktop-entry search path, so
+# a copy left there wins over what we just installed -- silently, and forever:
+# that is how the first test copies of these buttons kept the panel on the old
+# cosmic-panel-button after the applet shipped. Every com.popflow entry is ours,
+# so move any stale one aside (not deleted) to a backup folder.
+stale_backup="$HOME/.local/state/pop-flow/old-desktop-entries"
+for home_copy in "$HOME"/.local/share/applications/com.popflow.*Folder.desktop; do
+    [ -f "$home_copy" ] || continue
+    mkdir -p "$stale_backup"
+    mv "$home_copy" "$stale_backup/"
+    echo "    moved stale $(basename "$home_copy") to $stale_backup"
 done
 
 echo "==> Restarting the panel to reload the applets..."

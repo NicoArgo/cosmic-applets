@@ -4,7 +4,7 @@
 //!
 //! Pressing it brings forward a file-manager window already showing the folder
 //! — unminimizing it, or switching to its workspace — and only opens a new
-//! window when there is none. While such a window exists the label is drawn in
+//! window when there is none. While such a window exists the icon is drawn in
 //! the accent color, so the panel says "it's open" before you press.
 
 pub mod folder;
@@ -13,11 +13,9 @@ mod wayland;
 use cosmic::{
     Element,
     app::{self, Core},
-    applet::cosmic_panel_config::{PanelAnchor, PanelSize},
-    applet::Size,
     cctk::sctk::reexports::calloop,
-    iced::{self, Alignment, Length, Limits, id::Id as WidgetId},
-    widget::{autosize::autosize, row, space},
+    iced::{self, Length, Limits, id::Id as WidgetId},
+    widget::{autosize::autosize, tooltip},
 };
 use std::sync::LazyLock;
 
@@ -124,42 +122,43 @@ impl cosmic::Application for FolderButton {
 
     fn view(&self) -> Element<'_, Message> {
         let open = self.is_open();
-        // Same presentation rule as cosmic-panel-button, which these buttons
-        // replace: an icon on a vertical panel or a big one, text otherwise.
-        let icon_mode = matches!(self.core.applet.anchor, PanelAnchor::Left | PanelAnchor::Right)
-            || matches!(
-                self.core.applet.size,
-                Size::PanelSize(PanelSize::S | PanelSize::M | PanelSize::L | PanelSize::XL)
-            );
-
-        let button = if icon_mode {
-            let icon = match (self.kind, open) {
-                (_, true) => "folder-open-symbolic",
-                (Kind::Pictures, false) => "folder-pictures-symbolic",
-                (Kind::Downloads, false) => "folder-download-symbolic",
-            };
-            self.core.applet.icon_button(icon)
-        } else {
-            let mut label = self.core.applet.text(self.name.clone());
-            if open {
-                label = label.class(cosmic::theme::Text::Accent);
-            }
-            let content = row![
-                label,
-                space::vertical().height(Length::Fixed(
-                    (self.core.applet.suggested_size(true).1
-                        + 2 * self.core.applet.suggested_padding(true).1) as f32
-                ))
-            ]
-            .align_y(Alignment::Center);
-            cosmic::widget::button::custom(content)
-                .padding([0, self.core.applet.suggested_padding(true).0])
-                .class(cosmic::theme::Button::AppletIcon)
+        let icon_name = match self.kind {
+            Kind::Pictures => "folder-pictures-symbolic",
+            Kind::Downloads => "folder-download-symbolic",
         };
+        let suggested = self.core.applet.suggested_size(true);
+        // Always an icon, like the rest of the applet row. While a window on
+        // the folder is open the icon takes the accent color — the same "it's
+        // open" cue the label used to give.
+        let icon = cosmic::widget::icon(cosmic::widget::icon::from_name(icon_name).symbolic(true).handle())
+            .class(cosmic::theme::Svg::custom(move |theme| {
+                let cosmic = theme.cosmic();
+                iced::widget::svg::Style {
+                    color: Some(if open {
+                        cosmic.accent_color().into()
+                    } else {
+                        cosmic.background(theme.transparent).on.into()
+                    }),
+                }
+            }))
+            .width(Length::Fixed(suggested.0 as f32))
+            .height(Length::Fixed(suggested.1 as f32));
+        let button = self
+            .core
+            .applet
+            .button_from_element(icon, true)
+            .on_press_down(Message::Press);
 
-        autosize(button.on_press_down(Message::Press), AUTOSIZE_MAIN_ID.clone())
-            .limits(Limits::NONE.min_width(1.).min_height(1.))
-            .into()
+        autosize(
+            tooltip(
+                button,
+                cosmic::widget::text::body(self.name.clone()),
+                tooltip::Position::Bottom,
+            ),
+            AUTOSIZE_MAIN_ID.clone(),
+        )
+        .limits(Limits::NONE.min_width(1.).min_height(1.))
+        .into()
     }
 
     fn style(&self) -> Option<iced::theme::Style> {

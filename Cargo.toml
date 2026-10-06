@@ -11,6 +11,7 @@ members = [
     "cosmic-applet-show-desktop",
     "cosmic-show-desktop-corner",
     "cosmic-applet-folder-button",
+    "cosmic-applet-vampire",
     "cosmic-applet-network",
     "cosmic-applet-notifications",
     "cosmic-applet-power",

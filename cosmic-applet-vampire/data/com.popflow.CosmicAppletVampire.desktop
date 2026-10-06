@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=Vampire Mode
+Name[pt_BR]=Modo vampiro
+Comment=Choose whether the computer may sleep on its own (lid, idle) or only when you tell it to
+Comment[pt_BR]=Escolha se o computador pode dormir sozinho (tampa, inatividade) ou só quando você mandar
+Type=Application
+Exec=cosmic-applet-vampire
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Sleep;Suspend;Lid;Vampire;
+Icon=com.popflow.CosmicAppletVampire
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=1

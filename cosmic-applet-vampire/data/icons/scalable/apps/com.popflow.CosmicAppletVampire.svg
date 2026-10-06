@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- A bat: the computer that stays up all night. Symbolic, so the panel
+       recolors it with the theme. -->
+  <path fill="currentColor" d="M8 5.2 6.9 3.6l-.3 1.7C5.2 4.6 3 4.4.5 5.4c1.4.6 2 1.6 2 2.9 1-.6 2-.5 2.7.4.4-.8 1.2-1 2-.6L8 12l.8-3.9c.8-.4 1.6-.2 2 .6.7-.9 1.7-1 2.7-.4 0-1.3.6-2.3 2-2.9-2.5-1-4.7-.8-6.1-.1l-.3-1.7z"/>
+</svg>

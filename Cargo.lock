@@ -1248,6 +1248,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-applet-vampire"
+version = "0.1.0"
+dependencies = [
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "rust-embed",
+ "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cosmic-applet-workspaces"
 version = "1.0.15"
 dependencies = [

@@ -37,6 +37,18 @@ sudo rm -f /usr/local/share/applications/com.popflow.CosmicAppletPicturesFolder.
            /usr/local/share/applications/com.popflow.DownloadsFolder.desktop \
            /usr/local/bin/cosmic-applet-folder-button
 
+echo "==> Removing vampire mode (sleep returns to normal first)..."
+# --off before the binary goes: it puts the idle settings back as they were.
+if [ -x /usr/local/bin/cosmic-applet-vampire ]; then
+    /usr/local/bin/cosmic-applet-vampire --off || true
+fi
+systemctl --user disable --now pop-flow-vampire.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/pop-flow-vampire.service"
+systemctl --user daemon-reload
+sudo rm -f /usr/local/bin/cosmic-applet-vampire \
+           /usr/local/share/applications/com.popflow.CosmicAppletVampire.desktop \
+           /usr/local/share/icons/hicolor/scalable/apps/com.popflow.CosmicAppletVampire.svg
+
 echo "==> Restarting the panel..."
 pkill -x cosmic-panel 2>/dev/null || true
 echo "==> Restored. (Log out/in if the panel doesn't return.)"

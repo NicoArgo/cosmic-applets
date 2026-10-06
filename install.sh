@@ -108,6 +108,26 @@ for home_copy in "$HOME"/.local/share/applications/com.popflow.*Folder.desktop; 
     echo "    moved stale $(basename "$home_copy") to $stale_backup"
 done
 
+# --- vampire mode ------------------------------------------------------------
+# A panel switch: in vampire mode closing the lid or sitting idle never puts the
+# computer to sleep, only asking it to does. The mode itself is a systemd user
+# unit plus the idle settings, written by the applet when switched on, so
+# installing changes nothing until it is pressed. New software under /usr/local.
+echo
+echo "==> Building (cargo build --release -p cosmic-applet-vampire)..."
+cargo build --release -p cosmic-applet-vampire
+VM_BIN="target/release/cosmic-applet-vampire"
+[ -f "$VM_BIN" ] || { echo "Build failed: $VM_BIN not found"; exit 1; }
+VM_ID=com.popflow.CosmicAppletVampire
+echo "==> Installing the vampire-mode applet (needs sudo)..."
+sudo install -Dm 0755 "$VM_BIN" /usr/local/bin/cosmic-applet-vampire
+sudo install -Dm 0644 "cosmic-applet-vampire/data/$VM_ID.desktop" \
+    "/usr/local/share/applications/$VM_ID.desktop"
+sudo install -Dm 0644 \
+    "cosmic-applet-vampire/data/icons/scalable/apps/$VM_ID.svg" \
+    "/usr/local/share/icons/hicolor/scalable/apps/$VM_ID.svg"
+sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
+
 echo "==> Restarting the panel to reload the applets..."
 pkill -x cosmic-panel 2>/dev/null || true
 
@@ -121,10 +141,14 @@ echo
 echo "    The Pictures and Downloads buttons are added the same way, in that"
 echo "    same panel-applet list."
 echo
-echo "    The triangle in the bottom-right corner of the screen does the same;"
+echo "    The triangle in the bottom-right corner of the screen does the same —"
+echo "    click it, or rest the pointer on it for a moment;"
 echo "    turn it off with: systemctl --user disable --now cosmic-show-desktop-corner"
 echo
 echo "    The same toggle, for a keyboard shortcut or a gesture:"
 echo "        cosmic-applet-show-desktop --toggle"
+echo
+echo "    Vampire mode (bat = never sleeps on its own, moon = may sleep) is in"
+echo "    the same panel-applet list; also: cosmic-applet-vampire --on|--off|--status"
 echo
 echo "    (If the panel doesn't come back on its own, log out and back in.)"

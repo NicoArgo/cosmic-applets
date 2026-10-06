@@ -54,8 +54,10 @@ sudo install -Dm 0644 \
 sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
 
 # --- show-desktop corner --------------------------------------------------
-# A small triangle in the bottom-right corner that runs the same toggle as the
-# show-desktop button. Not an applet: a layer surface that lives for the whole
+# A small triangle in the bottom-right corner of every screen that runs the same
+# toggle as the show-desktop button — by default only for that screen's
+# windows (setting: ~/.config/cosmic/com.popflow.ShowDesktop/v1/per_output;
+# a right click on the triangle flips it). Not an applet: a layer surface that lives for the whole
 # session, so it runs as a systemd *user* service (per user, restarted if the
 # compositor drops it). New software under /usr/local, so no reapply hook.
 echo
@@ -152,15 +154,20 @@ echo
 echo "    The Pictures and Downloads buttons are added the same way, in that"
 echo "    same panel-applet list."
 echo
-echo "    The triangle in the bottom-right corner of the screen does the same —"
-echo "    click it, or rest the pointer on it for a moment;"
-echo "    turn it off with: systemctl --user disable --now cosmic-show-desktop-corner"
+echo "    The triangle in the bottom-right corner of each screen does the same —"
+echo "    click it, or rest the pointer on it for a moment. By default it only"
+echo "    puts away the windows of the screen it is on; right-click it to switch"
+echo "    between \"this screen\" and \"all screens\" (the panel button and the"
+echo "    shortcut follow the same setting; also: cosmic-applet-show-desktop"
+echo "    --scope screen|all|status). Turn the triangle off with:"
+echo "        systemctl --user disable --now cosmic-show-desktop-corner"
 echo
 echo "    A top-left corner for the workspaces overview is installed but off;"
 echo "    turn it on with: systemctl --user enable --now cosmic-overview-corner"
 echo "    (more corners: cosmic-show-desktop-corner --help)"
 echo
-echo "    The same toggle, for a keyboard shortcut or a gesture:"
+echo "    The same toggle, for a keyboard shortcut or a gesture (on \"this screen\","
+echo "    it acts on the focused window's screen):"
 echo "        cosmic-applet-show-desktop --toggle"
 echo
 echo "    Vampire mode (bat = never sleeps on its own, moon = may sleep) is in"

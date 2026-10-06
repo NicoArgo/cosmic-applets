@@ -19,8 +19,41 @@ usage: cosmic-show-desktop-corner [--corner C] [--dwell-ms N] [--exec COMMAND]
   --corner C       top-left, top-right, bottom-left or bottom-right (default)
   --dwell-ms N     rest the pointer this long to act without a click
                    (default 600; 0 = click only)
-  --exec COMMAND   run through sh -c on click or rest
-                   (default: cosmic-applet-show-desktop --toggle)";
+  --exec COMMAND   run through sh -c on click or rest; {output} in it becomes
+                   the name of the screen it was triggered on (eDP-1...)
+                   (default: cosmic-applet-show-desktop --toggle, which gets
+                   --output <screen> added when the setting is \"this screen\")
+
+The triangle shows on every screen. On a show-desktop corner, a right click
+flips between \"this screen\" and \"all screens\"
+(~/.config/cosmic/com.popflow.ShowDesktop/v1/per_output).";
+
+/// Placeholder in `--exec` for the triggering output's name.
+pub const OUTPUT_PLACEHOLDER: &str = "{output}";
+
+/// The command to run when the corner on `output` is triggered.
+///
+/// - `{output}` anywhere in the command is replaced by the output's name,
+///   shell-quoted (empty quotes if the name isn't known yet).
+/// - The default show-desktop command gets `--output <name>` appended when the
+///   setting is per-screen; with "all screens" it runs as it is.
+/// - Any other command runs unchanged.
+pub fn command_for(exec: &str, output: Option<&str>, per_output: bool) -> String {
+    if exec.contains(OUTPUT_PLACEHOLDER) {
+        return exec.replace(OUTPUT_PLACEHOLDER, &shell_quote(output.unwrap_or("")));
+    }
+    match output {
+        Some(name) if per_output && exec == DEFAULT_EXEC && !name.is_empty() => {
+            format!("{exec} --output {}", shell_quote(name))
+        }
+        _ => exec.to_string(),
+    }
+}
+
+/// Single quotes, with any single quote inside closed, escaped and reopened.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Options {
@@ -37,6 +70,15 @@ impl Default for Options {
             dwell: Some(DEFAULT_DWELL),
             exec: DEFAULT_EXEC.to_string(),
         }
+    }
+}
+
+impl Options {
+    /// Whether this corner shows the desktop — and so whether a right click
+    /// flips the show-desktop setting, and the triangle shows which it is.
+    /// An overview corner has nothing to do with it.
+    pub fn is_show_desktop(&self) -> bool {
+        self.exec.contains("cosmic-applet-show-desktop")
     }
 }
 
@@ -119,6 +161,36 @@ mod tests {
         // A command with arguments and an `=` of its own stays whole.
         let options = parse_list(&["--exec=env A=b foo --bar"]).unwrap().unwrap();
         assert_eq!(options.exec, "env A=b foo --bar");
+    }
+
+    #[test]
+    fn the_default_command_follows_the_setting() {
+        assert_eq!(
+            command_for(DEFAULT_EXEC, Some("HDMI-A-2"), true),
+            "cosmic-applet-show-desktop --toggle --output 'HDMI-A-2'"
+        );
+        assert_eq!(command_for(DEFAULT_EXEC, Some("HDMI-A-2"), false), DEFAULT_EXEC);
+        // Name not known yet: the toggle falls back to the focused window's.
+        assert_eq!(command_for(DEFAULT_EXEC, None, true), DEFAULT_EXEC);
+    }
+
+    #[test]
+    fn a_custom_command_gets_the_output_where_it_asks() {
+        assert_eq!(
+            command_for("notify-send corner {output}", Some("eDP-1"), false),
+            "notify-send corner 'eDP-1'"
+        );
+        assert_eq!(command_for("x {output}", None, true), "x ''");
+        assert_eq!(command_for("x {output}", Some("it's"), true), r"x 'it'\''s'");
+        // No placeholder: untouched, whatever the setting.
+        assert_eq!(command_for("cosmic-workspaces", Some("eDP-1"), true), "cosmic-workspaces");
+    }
+
+    #[test]
+    fn only_show_desktop_corners_carry_the_setting() {
+        assert!(Options::default().is_show_desktop());
+        let overview = parse_list(&["--exec", "cosmic-workspaces"]).unwrap().unwrap();
+        assert!(!overview.is_show_desktop());
     }
 
     #[test]

@@ -91,8 +91,31 @@ pub fn inside(corner: ScreenCorner, x: f64, y: f64, legs: f64) -> bool {
 /// Premultiplied ARGB8888 (little-endian bytes: B, G, R, A) for a surface of
 /// `SIZE * scale` pixels a side. Edges are 4×4 supersampled so the diagonal
 /// isn't a staircase.
+#[cfg(test)]
 pub fn render(corner: ScreenCorner, look: Look, rgb: [f32; 3], scale: u32) -> Vec<u8> {
+    render_mode(corner, look, rgb, scale, false)
+}
+
+/// Where the "all screens" notch sits, as a fraction of the legs, and how
+/// wide it is in logical pixels.
+const NOTCH_AT: f64 = 0.5;
+const NOTCH_WIDTH: f64 = 1.5;
+
+/// [`render`], with `all_screens` cutting a thin gap parallel to the diagonal:
+/// two stacked layers instead of one, for "shows the desktop on every screen".
+/// The difference is meant to be noticed when looked for, not to shout.
+pub fn render_mode(
+    corner: ScreenCorner,
+    look: Look,
+    rgb: [f32; 3],
+    scale: u32,
+    all_screens: bool,
+) -> Vec<u8> {
     let side = SIZE * scale;
+    let notch = all_screens.then(|| {
+        let from = look.legs as f64 * NOTCH_AT;
+        from..from + NOTCH_WIDTH
+    });
     let rgb = rgb.map(|c| c.clamp(0.0, 1.0) * (1.0 - look.lighten) + look.lighten);
     let mut out = Vec::with_capacity((side * side * 4) as usize);
     const N: u32 = 4;
@@ -103,7 +126,13 @@ pub fn render(corner: ScreenCorner, look: Look, rgb: [f32; 3], scale: u32) -> Ve
                 for sx in 0..N {
                     let x = (px as f64 + (sx as f64 + 0.5) / N as f64) / scale as f64;
                     let y = (py as f64 + (sy as f64 + 0.5) / N as f64) / scale as f64;
-                    if inside(corner, x, y, look.legs as f64) {
+                    if inside(corner, x, y, look.legs as f64)
+                        && !notch.as_ref().is_some_and(|notch| {
+                            let (bx, by) = corner.to_bottom_right(x, y);
+                            let s = SIZE as f64;
+                            notch.contains(&((s - bx) + (s - by)))
+                        })
+                    {
                         hits += 1;
                     }
                 }
@@ -250,6 +279,21 @@ mod tests {
             for (x, y, w, h) in rects {
                 assert!(x >= 0 && y >= 0 && x + w <= SIZE as i32 && y + h <= SIZE as i32);
             }
+        }
+    }
+
+    #[test]
+    fn all_screens_cuts_a_notch_and_keeps_the_corner() {
+        for corner in ScreenCorner::ALL {
+            let one = render_mode(corner, HOVER, [1.0, 0.0, 0.0], 1, false);
+            let all = render_mode(corner, HOVER, [1.0, 0.0, 0.0], 1, true);
+            assert_ne!(one, all, "{corner:?}: the modes must look different");
+            let ((nx, ny), _) = near_and_far(corner, SIZE as usize);
+            let alpha = |px: &[u8], x: usize, y: usize| px[(y * SIZE as usize + x) * 4 + 3];
+            assert_eq!(alpha(&one, nx, ny), alpha(&all, nx, ny), "the very corner stays");
+            // Fewer lit pixels, never more.
+            let lit = |px: &[u8]| px.chunks(4).map(|p| p[3] as u32).sum::<u32>();
+            assert!(lit(&all) < lit(&one));
         }
     }
 

@@ -127,6 +127,10 @@ sudo install -Dm 0644 \
     "cosmic-applet-vampire/data/icons/scalable/apps/$VM_ID.svg" \
     "/usr/local/share/icons/hicolor/scalable/apps/$VM_ID.svg"
 sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
+# Already on: rewrite its units if this version's differ (the deadline watcher
+# came later) without touching the mode or a running "awake for 1 h".
+/usr/local/bin/cosmic-applet-vampire --refresh >/dev/null \
+    || echo "!! Could not refresh vampire mode's units; switch it off and on again."
 
 echo "==> Restarting the panel to reload the applets..."
 pkill -x cosmic-panel 2>/dev/null || true
@@ -150,5 +154,6 @@ echo "        cosmic-applet-show-desktop --toggle"
 echo
 echo "    Vampire mode (bat = never sleeps on its own, moon = may sleep) is in"
 echo "    the same panel-applet list; also: cosmic-applet-vampire --on|--off|--status"
+echo "    Right-click it for \"awake for 1 h / 3 h\"; also: cosmic-applet-vampire --for <minutes>"
 echo
 echo "    (If the panel doesn't come back on its own, log out and back in.)"

@@ -43,7 +43,9 @@ if [ -x /usr/local/bin/cosmic-applet-vampire ]; then
     /usr/local/bin/cosmic-applet-vampire --off || true
 fi
 systemctl --user disable --now pop-flow-vampire.service 2>/dev/null || true
-rm -f "$HOME/.config/systemd/user/pop-flow-vampire.service"
+rm -f "$HOME/.config/systemd/user/pop-flow-vampire.service" \
+      "$HOME/.config/systemd/user/pop-flow-vampire-watch.service" \
+      "$HOME/.local/state/pop-flow/vampire-until"
 systemctl --user daemon-reload
 sudo rm -f /usr/local/bin/cosmic-applet-vampire \
            /usr/local/share/applications/com.popflow.CosmicAppletVampire.desktop \

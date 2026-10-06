@@ -8,11 +8,16 @@
 //! the panel button, so the corner and the button are interchangeable — put
 //! the windows away with one, bring them back with the other.
 //!
-//! Resting the pointer on it for [`DWELL`] does the same as a click, like a
-//! hot corner. It fires once per visit: the pointer has to leave before the
-//! corner will act on hover again, so sitting there doesn't flip the desktop
-//! back and forth.
+//! Resting the pointer on it for a moment (600 ms) does the same as a click,
+//! like a hot corner. It fires once per visit: the pointer has to leave before
+//! the corner will act on hover again, so sitting there doesn't flip the
+//! desktop back and forth.
+//!
+//! That is the default. The same binary serves any corner with any command —
+//! `--corner top-left --exec cosmic-workspaces` is the overview corner — one
+//! process per corner, each its own user service (see [`args`]).
 
+mod args;
 mod shape;
 
 use std::path::PathBuf;
@@ -54,20 +59,29 @@ use wayland_client::{
     protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
 };
 
-use shape::{HOVER, IDLE, Look, PRESSED, SIZE};
+use args::Options;
+use shape::{HOVER, IDLE, Look, PRESSED, SIZE, ScreenCorner};
 
 const BTN_LEFT: u32 = 0x110;
-const TOGGLE: &str = "cosmic-applet-show-desktop";
 /// How often to look for a new accent color (the theme can change under us —
 /// by hand in Settings, or by cosmic-wallsync following the wallpaper).
 const THEME_POLL: Duration = Duration::from_secs(3);
-/// How long the pointer rests on the corner before it acts on its own. Long
-/// enough that sweeping past on the way to the panel doesn't count.
-const DWELL: Duration = Duration::from_millis(600);
 /// Used until the theme can be read.
 const FALLBACK_RGB: [f32; 3] = [0.58, 0.77, 0.99];
 
 fn main() {
+    let options = match args::parse(&std::env::args().skip(1).collect::<Vec<_>>()) {
+        Ok(Some(options)) => options,
+        Ok(None) => {
+            println!("{}", args::USAGE);
+            return;
+        }
+        Err(err) => {
+            eprintln!("{err}\n\n{}", args::USAGE);
+            std::process::exit(2);
+        }
+    };
+
     let conn = Connection::connect_to_env().expect("no Wayland display");
     let (globals, event_queue) = registry_queue_init(&conn).expect("registry");
     let qh = event_queue.handle();
@@ -79,20 +93,24 @@ fn main() {
     let surface = compositor.create_surface(&qh);
     // Top: above ordinary windows (the corner must work while they cover it),
     // below fullscreen ones (a video shouldn't wear a triangle).
-    let layer = layer_shell.create_layer_surface(
-        &qh,
-        surface,
-        Layer::Top,
-        Some("pop-flow-show-desktop-corner"),
-        None,
-    );
-    layer.set_anchor(Anchor::BOTTOM | Anchor::RIGHT);
+    // The original keeps its name; the others are named for their corner.
+    let namespace = match options.corner {
+        ScreenCorner::BottomRight => "pop-flow-show-desktop-corner".to_string(),
+        corner => format!("pop-flow-hot-corner-{}", corner.name()),
+    };
+    let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Top, Some(namespace), None);
+    layer.set_anchor(match options.corner {
+        ScreenCorner::TopLeft => Anchor::TOP | Anchor::LEFT,
+        ScreenCorner::TopRight => Anchor::TOP | Anchor::RIGHT,
+        ScreenCorner::BottomLeft => Anchor::BOTTOM | Anchor::LEFT,
+        ScreenCorner::BottomRight => Anchor::BOTTOM | Anchor::RIGHT,
+    });
     layer.set_size(SIZE, SIZE);
     // -1: sit in the very corner even if something reserves that edge.
     layer.set_exclusive_zone(-1);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
     let region = Region::new(&compositor).expect("wl_region");
-    for (x, y, w, h) in shape::input_staircase(4) {
+    for (x, y, w, h) in shape::input_staircase(options.corner, 4) {
         region.add(x, y, w, h);
     }
     layer.wl_surface().set_input_region(Some(region.wl_region()));
@@ -118,6 +136,7 @@ fn main() {
         loop_handle: event_loop.handle(),
         dwell: None,
         dwell_fired: false,
+        options,
         exit: false,
     };
 
@@ -216,6 +235,7 @@ struct Corner {
     /// The hover already acted during this visit; cleared when the pointer
     /// leaves.
     dwell_fired: bool,
+    options: Options,
     exit: bool,
 }
 
@@ -233,7 +253,8 @@ impl Corner {
             return;
         }
         let side = (SIZE * self.scale) as i32;
-        let pixels = shape::render(self.look(), self.accent.rgb, self.scale);
+        let pixels =
+            shape::render(self.options.corner, self.look(), self.accent.rgb, self.scale);
         let (buffer, canvas) = match self.pool.create_buffer(
             side,
             side,
@@ -261,14 +282,17 @@ impl Corner {
 
     /// Start counting when the pointer arrives; forget it when it goes.
     fn track_dwell(&mut self) {
+        let Some(dwell) = self.options.dwell else {
+            return;
+        };
         if self.hover && !self.dwell_fired && self.dwell.is_none() {
             let token = self.loop_handle.insert_source(
-                Timer::from_duration(DWELL),
+                Timer::from_duration(dwell),
                 |_, _, corner| {
                     corner.dwell = None;
                     if corner.hover && !corner.pressed && !corner.dwell_fired {
                         corner.dwell_fired = true;
-                        corner.toggle();
+                        corner.act();
                     }
                     TimeoutAction::Drop
                 },
@@ -285,18 +309,21 @@ impl Corner {
         }
     }
 
-    fn toggle(&self) {
-        match std::process::Command::new(TOGGLE).arg("--toggle").spawn() {
+    /// Run the corner's command (`--exec`, through `sh -c` so it can carry
+    /// arguments the way a desktop shortcut would).
+    fn act(&self) {
+        let exec = self.options.exec.clone();
+        match std::process::Command::new("sh").arg("-c").arg(&exec).spawn() {
             // Reap it off-thread so no zombie lingers, and say how it ended:
-            // a toggle that fails silently looks exactly like a dead corner.
+            // a command that fails silently looks exactly like a dead corner.
             Ok(mut child) => {
                 std::thread::spawn(move || match child.wait() {
                     Ok(status) if status.success() => {}
-                    Ok(status) => eprintln!("{TOGGLE} --toggle exited with {status}"),
-                    Err(err) => eprintln!("{TOGGLE} --toggle: {err}"),
+                    Ok(status) => eprintln!("{exec} exited with {status}"),
+                    Err(err) => eprintln!("{exec}: {err}"),
                 });
             }
-            Err(err) => eprintln!("{TOGGLE} --toggle: {err}"),
+            Err(err) => eprintln!("{exec}: {err}"),
         }
     }
 }
@@ -432,7 +459,7 @@ impl PointerHandler for Corner {
                 continue;
             }
             let (x, y) = event.position;
-            let on_it = shape::inside(x, y, SIZE as f64);
+            let on_it = shape::inside(self.options.corner, x, y, SIZE as f64);
             match event.kind {
                 PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                     self.hover = on_it;
@@ -454,7 +481,7 @@ impl PointerHandler for Corner {
                         // A click is its own decision: it counts for this
                         // visit, so the hover doesn't undo it right after.
                         self.dwell_fired = true;
-                        self.toggle();
+                        self.act();
                     }
                     self.pressed = false;
                 }

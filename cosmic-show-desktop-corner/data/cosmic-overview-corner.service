@@ -1,0 +1,20 @@
+# Not enabled by install.sh — turn it on with:
+#   systemctl --user enable --now cosmic-overview-corner.service
+# The top-left corner is also where the panel's first button sits; the dwell
+# keeps a quick pass on the way to it from opening the overview, and the
+# triangle only takes clicks inside its own diagonal.
+[Unit]
+Description=POP Flow — canto ativo superior esquerdo: visão geral das áreas de trabalho
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+# cosmic-workspaces is exactly what COSMIC's WorkspaceOverview shortcut
+# (Super+W) runs; it is single-instance, so a second launch goes to the one
+# already open over D-Bus instead of starting another.
+ExecStart=/usr/local/bin/cosmic-show-desktop-corner --corner top-left --dwell-ms 600 --exec cosmic-workspaces
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

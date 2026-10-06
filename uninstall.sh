@@ -26,7 +26,9 @@ echo "   the config still lists it and the slot would sit empty."
 
 echo "==> Removing the show-desktop corner..."
 systemctl --user disable --now cosmic-show-desktop-corner.service 2>/dev/null || true
-rm -f "$HOME/.config/systemd/user/cosmic-show-desktop-corner.service"
+systemctl --user disable --now cosmic-overview-corner.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/cosmic-show-desktop-corner.service" \
+      "$HOME/.config/systemd/user/cosmic-overview-corner.service"
 systemctl --user daemon-reload
 sudo rm -f /usr/local/bin/cosmic-show-desktop-corner
 

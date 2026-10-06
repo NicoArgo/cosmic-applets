@@ -73,6 +73,13 @@ systemctl --user daemon-reload
 systemctl --user enable cosmic-show-desktop-corner.service
 # restart, not start: a reinstall must pick up the new binary.
 systemctl --user restart cosmic-show-desktop-corner.service
+# The same binary as a top-left hot corner for the workspaces overview —
+# installed but left off: that corner is also the panel's first button.
+install -Dm 0644 cosmic-show-desktop-corner/data/cosmic-overview-corner.service \
+    "$HOME/.config/systemd/user/cosmic-overview-corner.service"
+systemctl --user daemon-reload
+# Already turned on by hand: a reinstall must pick up the new binary there too.
+systemctl --user try-restart cosmic-overview-corner.service
 
 # --- folder buttons --------------------------------------------------------
 # One applet binary, one argument per folder. Pressing a button brings forward a
@@ -148,6 +155,10 @@ echo
 echo "    The triangle in the bottom-right corner of the screen does the same —"
 echo "    click it, or rest the pointer on it for a moment;"
 echo "    turn it off with: systemctl --user disable --now cosmic-show-desktop-corner"
+echo
+echo "    A top-left corner for the workspaces overview is installed but off;"
+echo "    turn it on with: systemctl --user enable --now cosmic-overview-corner"
+echo "    (more corners: cosmic-show-desktop-corner --help)"
 echo
 echo "    The same toggle, for a keyboard shortcut or a gesture:"
 echo "        cosmic-applet-show-desktop --toggle"

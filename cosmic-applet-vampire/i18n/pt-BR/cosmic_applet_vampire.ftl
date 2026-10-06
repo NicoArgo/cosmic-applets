@@ -5,3 +5,4 @@ awake-for = Acordado por { $hours } h
 menu-on = Modo vampiro
 menu-keep-on = Acordado sem prazo
 menu-off = Voltar ao modo dormir
+lid-closed = Tampa fechada — o PC continua acordado (modo vampiro)

@@ -10,7 +10,7 @@ mod localize;
 pub mod mode;
 pub mod watch;
 
-use crate::localize::localize;
+pub use crate::localize::localize;
 use cosmic::{
     Element,
     app::{self, Core},

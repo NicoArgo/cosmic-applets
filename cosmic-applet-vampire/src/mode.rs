@@ -75,12 +75,13 @@ WantedBy=graphical-session.target
     .to_string()
 }
 
-/// The watcher: ends a temporary mode on time. Bound to the inhibitor's unit
+/// The watcher: ends a temporary mode on time and says when the lid closes
+/// (see [`crate::watch`]). Bound to the inhibitor's unit
 /// (pulled in by its `Wants=`, stopped with it), and never enabled itself.
 pub fn watch_unit_text() -> String {
     format!(
         r#"[Unit]
-Description=POP Flow — modo vampiro: prazo do modo temporário
+Description=POP Flow — modo vampiro: prazo do modo temporário e aviso de tampa fechada
 BindsTo={UNIT}
 After={UNIT}
 

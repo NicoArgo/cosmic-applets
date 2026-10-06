@@ -52,7 +52,11 @@ fn main() -> cosmic::iced::Result {
         Ok(Some(Cli::Status)) => Some(Ok(mode::is_on())),
         Ok(Some(Cli::For(minutes))) => Some(mode::set_for(minutes).map(|()| true)),
         Ok(Some(Cli::Refresh)) => Some(mode::refresh()),
-        Ok(Some(Cli::Watch)) => Some(watch::run().map(|()| false)),
+        Ok(Some(Cli::Watch)) => {
+            // The lid notification speaks the user's language.
+            cosmic_applet_vampire::localize();
+            Some(watch::run().map(|()| false))
+        }
         Err(err) => Some(Err(err)),
     };
     if let Some(result) = result {

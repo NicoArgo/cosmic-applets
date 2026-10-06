@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! POP Flow — "show the desktop": one press puts every window on the current
-//! workspace away, the next brings back exactly those.
+//! workspace away, the next brings back exactly those. By default only on the
+//! screen it is pressed on (see [`scope`] and [`config`]).
 
+pub mod cli;
+pub mod config;
 mod localize;
+pub mod scope;
 pub mod show_desktop;
 pub mod state_file;
 pub mod toggle;
@@ -12,7 +16,8 @@ pub(crate) mod wayland_subscription;
 
 use crate::{
     localize::localize,
-    show_desktop::{ShowDesktop, Step, Window},
+    scope::{Scope, ScopedWindow},
+    show_desktop::Step,
     wayland_subscription::{WaylandRequest, WaylandUpdate, WindowEntry, wayland_subscription},
 };
 use cosmic::{
@@ -27,12 +32,14 @@ use std::sync::LazyLock;
 /// The windows the decision runs against, keyed by the compositor's stable
 /// identifier rather than the Wayland handle — that is what the shared state
 /// file can hold.
-pub(crate) fn to_windows(entries: &[WindowEntry]) -> Vec<Window<String>> {
+pub(crate) fn to_windows(entries: &[WindowEntry]) -> Vec<ScopedWindow> {
     entries
         .iter()
-        .map(|entry| Window {
+        .map(|entry| ScopedWindow {
             id: entry.identifier.clone(),
             minimized: entry.minimized,
+            activated: entry.activated,
+            outputs: entry.outputs.clone(),
         })
         .collect()
 }
@@ -74,6 +81,17 @@ enum Message {
 }
 
 impl ShowDesktopApplet {
+    /// The panel this button sits on is on one output; with the setting on
+    /// "this screen", that output is the button's scope. Read on every use:
+    /// the setting can flip under us (Settings, the corner's right click).
+    fn scope(&self) -> Scope {
+        crate::scope::resolve(
+            config::per_output(),
+            Some(self.core.applet.output_name.as_str()),
+            None,
+        )
+    }
+
     fn send(&self, request: WaylandRequest) {
         if let Some(tx) = &self.tx
             && let Err(err) = tx.send(request)
@@ -147,10 +165,18 @@ impl cosmic::Application for ShowDesktopApplet {
                     // Windows we put away can be closed while the desktop is
                     // showing. Once the last one goes there is nothing to come
                     // back to, and the button should offer to minimize again.
-                    let mut state = ShowDesktop::from_hidden(state_file::load());
-                    state.retain_existing(&to_windows(&self.windows));
-                    state_file::save(state.hidden());
-                    self.showing = state.is_showing_desktop();
+                    //
+                    // Saved only when that changed something: with the panel on
+                    // two screens there are two of these buttons, and a blind
+                    // write could put back a set a toggle just replaced.
+                    let windows = to_windows(&self.windows);
+                    let mut state = state_file::load();
+                    let before = state.clone();
+                    state.retain_existing(&windows);
+                    if state != before {
+                        state_file::save(&state);
+                    }
+                    self.showing = state.is_showing_desktop(&self.scope(), &windows);
                 }
             },
             // Motion repeats Hover(true) on every move; only a change matters.
@@ -179,10 +205,11 @@ impl cosmic::Application for ShowDesktopApplet {
                 // The file, not this struct, is the source of truth: a touchpad
                 // gesture runs the same toggle from another process, and
                 // whichever acted second would otherwise restore the wrong set.
-                let mut state = ShowDesktop::from_hidden(state_file::load());
-                let steps = state.toggle(&windows);
-                state_file::save(state.hidden());
-                self.showing = state.is_showing_desktop();
+                let scope = self.scope();
+                let mut state = state_file::load();
+                let steps = state.toggle(&scope, &windows);
+                state_file::save(&state);
+                self.showing = state.is_showing_desktop(&scope, &windows);
 
                 for step in steps {
                     let (identifier, minimize) = match step {

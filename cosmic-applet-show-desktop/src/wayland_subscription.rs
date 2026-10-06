@@ -37,7 +37,7 @@ pub fn wayland_subscription() -> iced::Subscription<WaylandUpdate> {
     })
 }
 
-/// A window on the active workspace, reduced to what this applet needs.
+/// A window on an active workspace (one per output), reduced to what this applet needs.
 ///
 /// The applet never sees Wayland objects: the thread flattens each toplevel to
 /// its handle and whether it is minimized, which is the whole input to the
@@ -50,13 +50,17 @@ pub struct WindowEntry {
     /// a file, and a Wayland object cannot cross that boundary.
     pub identifier: String,
     pub minimized: bool,
+    /// Has keyboard focus: its output is "this screen" for a keyboard shortcut.
+    pub activated: bool,
+    /// Names of the outputs it shows on, the one showing most of it first.
+    pub outputs: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
 pub enum WaylandUpdate {
     Init(calloop::channel::Sender<WaylandRequest>),
     Finished,
-    /// The full set of windows on the active workspace, sent whenever it
+    /// The full set of windows on the active workspaces, sent whenever it
     /// changes. A snapshot rather than a diff: the set is small, and the
     /// decision needs all of it anyway.
     Windows(Vec<WindowEntry>),

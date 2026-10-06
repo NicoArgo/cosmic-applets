@@ -6,9 +6,15 @@
 //! what pressing the panel button does, and shares the remembered set with it
 //! through [`crate::state_file`], so the two are interchangeable — put the
 //! windows away with a gesture, bring them back with the button.
+//!
+//! Which windows depends on the setting ([`crate::config`]): with "this
+//! screen", the output named by `--output` (a screen corner names its own), or
+//! else the output of the focused window (Super+D); with "all screens", every
+//! output.
 
 use crate::{
-    show_desktop::{ShowDesktop, Step},
+    config, scope,
+    show_desktop::Step,
     state_file,
     wayland_handler::wayland_handler,
     wayland_subscription::{WaylandRequest, WaylandUpdate},
@@ -37,7 +43,7 @@ const SETTLE: Duration = Duration::from_millis(150);
 /// requests it just made.
 const FLUSH_GRACE: Duration = Duration::from_millis(250);
 
-pub fn run() -> Result<(), String> {
+pub fn run(output: Option<String>, dry_run: bool) -> Result<(), String> {
     let (update_tx, mut update_rx) = mpsc::channel::<WaylandUpdate>(4);
     let (calloop_tx, calloop_rx) = calloop::channel::channel::<WaylandRequest>();
 
@@ -79,9 +85,34 @@ pub fn run() -> Result<(), String> {
     // at once instead.
     drop(update_rx);
 
-    let mut state = ShowDesktop::from_hidden(state_file::load());
-    let steps = state.toggle(&crate::to_windows(&windows));
-    state_file::save(state.hidden());
+    let scoped = crate::to_windows(&windows);
+    let scope = scope::resolve(
+        config::per_output(),
+        output.as_deref(),
+        scope::focused_output(&scoped),
+    );
+    tracing::debug!("show-desktop toggle in {scope:?}");
+    let mut state = state_file::load();
+    let steps = state.toggle(&scope, &scoped);
+    if dry_run {
+        for window in &scoped {
+            println!(
+                "{}\tminimized={}\tfocused={}\toutputs={}",
+                window.id,
+                window.minimized,
+                window.activated,
+                window.outputs.join(",")
+            );
+        }
+        println!("scope: {}", scope.key());
+        for step in &steps {
+            println!("would {step:?}");
+        }
+        drop(calloop_tx);
+        let _ = handler.join();
+        return Ok(());
+    }
+    state_file::save(&state);
 
     for step in steps {
         let (identifier, minimize) = match step {

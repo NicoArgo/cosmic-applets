@@ -14,6 +14,7 @@ use cctk::{
     sctk::{
         self,
         reexports::{calloop, calloop_wayland_source::WaylandSource},
+        output::{OutputHandler, OutputState},
         registry::{ProvidesRegistryState, RegistryState},
         seat::{SeatHandler, SeatState},
     },
@@ -22,7 +23,7 @@ use cctk::{
     wayland_client::{
         Connection, QueueHandle, WEnum,
         globals::registry_queue_init,
-        protocol::wl_seat::WlSeat,
+        protocol::{wl_output::WlOutput, wl_seat::WlSeat},
     },
     wayland_protocols::ext::foreign_toplevel_list::v1::client::ext_foreign_toplevel_handle_v1::ExtForeignToplevelHandleV1,
     workspace::{WorkspaceHandler, WorkspaceState},
@@ -42,13 +43,17 @@ struct AppData {
     toplevel_manager_state: ToplevelManagerState,
     workspace_state: WorkspaceState,
     seat_state: SeatState,
+    /// Bound so toplevels report which outputs they are on (a client only
+    /// hears about outputs it has bound), and to name them.
+    output_state: OutputState,
     /// Last snapshot sent up, so an event storm that changes nothing the applet
     /// cares about does not turn into a stream of identical messages.
     last_sent: Vec<WindowEntry>,
 }
 
 impl AppData {
-    /// Windows on the workspace the user is actually looking at.
+    /// Windows on the workspaces the user is actually looking at — one per
+    /// output — each with the outputs it is on.
     ///
     /// Filtering by workspace is not cosmetic: minimizing windows on the other
     /// workspaces would leave those empty when the user switched back, and the
@@ -82,9 +87,50 @@ impl AppData {
                     minimized: info
                         .state
                         .contains(&zcosmic_toplevel_handle_v1::State::Minimized),
+                    activated: info
+                        .state
+                        .contains(&zcosmic_toplevel_handle_v1::State::Activated),
+                    outputs: self.outputs_of(info),
                 })
             })
             .collect()
+    }
+
+    /// Output names for a toplevel, the one showing most of it first.
+    ///
+    /// The toplevel's own output list when it has one. A minimized window may
+    /// report none; then the outputs of its workspace's group stand in, which
+    /// is where it will come back.
+    fn outputs_of(&self, info: &cctk::toplevel_info::ToplevelInfo) -> Vec<String> {
+        let mut named: Vec<(String, i64)> = info
+            .output
+            .iter()
+            .filter_map(|output| {
+                let out = self.output_state.info(output)?;
+                let name = out.name?;
+                let area = match (info.geometry.get(output), out.logical_size) {
+                    (Some(g), Some(size)) => {
+                        crate::scope::visible_area((g.x, g.y, g.width, g.height), size)
+                    }
+                    _ => 0,
+                };
+                Some((name, area))
+            })
+            .collect();
+        if named.is_empty() {
+            named = self
+                .workspace_state
+                .workspace_groups()
+                .filter(|group| group.workspaces.iter().any(|w| info.workspace.contains(w)))
+                .flat_map(|group| group.outputs.iter())
+                .filter_map(|output| self.output_state.info(output)?.name)
+                .map(|name| (name, 0))
+                .collect();
+        }
+        named.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let mut names: Vec<String> = named.into_iter().map(|(name, _)| name).collect();
+        names.dedup();
+        names
     }
 
     fn send_windows(&mut self) {
@@ -175,6 +221,9 @@ pub(crate) fn wayland_handler(
     let mut app_data = AppData {
         exit: false,
         tx,
+        // Before toplevel info, so the outputs are bound by the time the
+        // first toplevel says which ones it is on.
+        output_state: OutputState::new(&globals, &qh),
         seat_state: SeatState::new(&globals, &qh),
         toplevel_info_state: ToplevelInfoState::new(&registry_state, &qh),
         toplevel_manager_state: ToplevelManagerState::new(&registry_state, &qh),
@@ -275,15 +324,36 @@ impl SeatHandler for AppData {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: WlSeat) {}
 }
 
+impl OutputHandler for AppData {
+    fn output_state(&mut self) -> &mut OutputState {
+        &mut self.output_state
+    }
+
+    // An output appearing, renamed or going away changes the names the
+    // windows are reported under.
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: WlOutput) {
+        self.send_windows();
+    }
+
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: WlOutput) {
+        self.send_windows();
+    }
+
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: WlOutput) {
+        self.send_windows();
+    }
+}
+
 impl ProvidesRegistryState for AppData {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
 
-    sctk::registry_handlers!(SeatState);
+    sctk::registry_handlers!(OutputState, SeatState);
 }
 
 sctk::delegate_seat!(AppData);
+sctk::delegate_output!(AppData);
 sctk::delegate_registry!(AppData);
 cctk::delegate_toplevel_info!(AppData);
 cctk::delegate_toplevel_manager!(AppData);

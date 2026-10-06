@@ -7,6 +7,11 @@
 //! `cosmic-applet-show-desktop --toggle`, which shares its remembered set with
 //! the panel button, so the corner and the button are interchangeable — put
 //! the windows away with one, bring them back with the other.
+//!
+//! Resting the pointer on it for [`DWELL`] does the same as a click, like a
+//! hot corner. It fires once per visit: the pointer has to leave before the
+//! corner will act on hover again, so sitting there doesn't flip the desktop
+//! back and forth.
 
 mod shape;
 
@@ -20,7 +25,7 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
-            EventLoop,
+            EventLoop, LoopHandle, RegistrationToken,
             timer::{TimeoutAction, Timer},
         },
         calloop_wayland_source::WaylandSource,
@@ -56,6 +61,9 @@ const TOGGLE: &str = "cosmic-applet-show-desktop";
 /// How often to look for a new accent color (the theme can change under us —
 /// by hand in Settings, or by cosmic-wallsync following the wallpaper).
 const THEME_POLL: Duration = Duration::from_secs(3);
+/// How long the pointer rests on the corner before it acts on its own. Long
+/// enough that sweeping past on the way to the panel doesn't count.
+const DWELL: Duration = Duration::from_millis(600);
 /// Used until the theme can be read.
 const FALLBACK_RGB: [f32; 3] = [0.58, 0.77, 0.99];
 
@@ -91,6 +99,7 @@ fn main() {
     layer.commit();
 
     let pool = SlotPool::new((SIZE * SIZE * 4) as usize, &shm).expect("shm pool");
+    let event_loop: EventLoop<Corner> = EventLoop::try_new().expect("event loop");
 
     let mut corner = Corner {
         registry_state: RegistryState::new(&globals),
@@ -106,10 +115,13 @@ fn main() {
         hover: false,
         pressed: false,
         accent: Accent::load(),
+        loop_handle: event_loop.handle(),
+        dwell: None,
+        dwell_fired: false,
         exit: false,
     };
 
-    let mut event_loop: EventLoop<Corner> = EventLoop::try_new().expect("event loop");
+    let mut event_loop = event_loop;
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
         .expect("wayland source");
@@ -198,6 +210,12 @@ struct Corner {
     hover: bool,
     pressed: bool,
     accent: Accent,
+    loop_handle: LoopHandle<'static, Corner>,
+    /// The pending hover timer, while the pointer rests on the corner.
+    dwell: Option<RegistrationToken>,
+    /// The hover already acted during this visit; cleared when the pointer
+    /// leaves.
+    dwell_fired: bool,
     exit: bool,
 }
 
@@ -239,6 +257,32 @@ impl Corner {
         }
         self.layer.commit();
         self.buffer = Some(buffer);
+    }
+
+    /// Start counting when the pointer arrives; forget it when it goes.
+    fn track_dwell(&mut self) {
+        if self.hover && !self.dwell_fired && self.dwell.is_none() {
+            let token = self.loop_handle.insert_source(
+                Timer::from_duration(DWELL),
+                |_, _, corner| {
+                    corner.dwell = None;
+                    if corner.hover && !corner.pressed && !corner.dwell_fired {
+                        corner.dwell_fired = true;
+                        corner.toggle();
+                    }
+                    TimeoutAction::Drop
+                },
+            );
+            match token {
+                Ok(token) => self.dwell = Some(token),
+                Err(err) => eprintln!("dwell timer: {err}"),
+            }
+        } else if !self.hover {
+            self.dwell_fired = false;
+            if let Some(token) = self.dwell.take() {
+                self.loop_handle.remove(token);
+            }
+        }
     }
 
     fn toggle(&self) {
@@ -407,6 +451,9 @@ impl PointerHandler for Corner {
                 // a way to change your mind.
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
                     if self.pressed && on_it {
+                        // A click is its own decision: it counts for this
+                        // visit, so the hover doesn't undo it right after.
+                        self.dwell_fired = true;
                         self.toggle();
                     }
                     self.pressed = false;
@@ -414,6 +461,7 @@ impl PointerHandler for Corner {
                 _ => {}
             }
         }
+        self.track_dwell();
         if (self.hover, self.pressed) != before {
             self.draw();
         }

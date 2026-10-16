@@ -1209,6 +1209,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-applet-terminals"
+version = "0.1.0"
+dependencies = [
+ "cosmic-client-toolkit",
+ "dirs",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "rust-embed",
+ "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cosmic-applet-tiling"
 version = "1.0.15"
 dependencies = [

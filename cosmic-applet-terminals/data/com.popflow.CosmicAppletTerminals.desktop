@@ -1,0 +1,17 @@
+[Desktop Entry]
+Name=Terminals
+Name[pt_BR]=Terminais
+Name[pt]=Terminais
+Comment=Open a terminal; one dot per open terminal, in its folder's color
+Comment[pt_BR]=Abre um terminal; uma bolinha por terminal aberto, na cor da pasta dele
+Comment[pt]=Abre um terminal; uma bolinha por terminal aberto, na cor da pasta dele
+Type=Application
+Exec=cosmic-applet-terminals
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Terminal;
+Icon=utilities-terminal-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=1

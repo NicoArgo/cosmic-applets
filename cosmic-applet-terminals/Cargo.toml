@@ -1,0 +1,18 @@
+[package]
+name = "cosmic-applet-terminals"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "POP Flow — open a terminal, and one dot per open terminal in its folder's color"
+
+[dependencies]
+cctk.workspace = true
+dirs = "6"
+i18n-embed-fl.workspace = true
+i18n-embed.workspace = true
+libcosmic.workspace = true
+rust-embed.workspace = true
+tokio.workspace = true
+tracing-log.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true

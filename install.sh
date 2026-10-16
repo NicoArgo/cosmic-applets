@@ -117,6 +117,21 @@ for home_copy in "$HOME"/.local/share/applications/com.popflow.*Folder.desktop; 
     echo "    moved stale $(basename "$home_copy") to $stale_backup"
 done
 
+# --- terminals ---------------------------------------------------------------
+# A button that opens a terminal, and one dot per open terminal window in the
+# color of its folder rule. The colors come from the POP Flow cosmic-term,
+# which writes them under $XDG_RUNTIME_DIR/pop-flow/terminals; with the stock
+# terminal every dot is neutral. Under /usr/local like the others.
+echo
+echo "==> Building (cargo build --release -p cosmic-applet-terminals)..."
+cargo build --release -p cosmic-applet-terminals
+TM_BIN="target/release/cosmic-applet-terminals"
+[ -f "$TM_BIN" ] || { echo "Build failed: $TM_BIN not found"; exit 1; }
+echo "==> Installing the terminals applet (needs sudo)..."
+sudo install -Dm 0755 "$TM_BIN" /usr/local/bin/cosmic-applet-terminals
+sudo install -Dm 0644 cosmic-applet-terminals/data/com.popflow.CosmicAppletTerminals.desktop \
+    /usr/local/share/applications/com.popflow.CosmicAppletTerminals.desktop
+
 # --- vampire mode ------------------------------------------------------------
 # A panel switch: in vampire mode closing the lid or sitting idle never puts the
 # computer to sleep, only asking it to does. The mode itself is a systemd user
@@ -169,6 +184,10 @@ echo
 echo "    The same toggle, for a keyboard shortcut or a gesture (on \"this screen\","
 echo "    it acts on the focused window's screen):"
 echo "        cosmic-applet-show-desktop --toggle"
+echo
+echo "    Terminals (a terminal icon, then one dot per open terminal in its"
+echo "    folder's color) is in the same list. Click a dot to bring that"
+echo "    terminal forward; right-click it to close it."
 echo
 echo "    Vampire mode (bat = never sleeps on its own, moon = may sleep) is in"
 echo "    the same panel-applet list; also: cosmic-applet-vampire --on|--off|--status"

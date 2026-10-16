@@ -39,6 +39,10 @@ sudo rm -f /usr/local/share/applications/com.popflow.CosmicAppletPicturesFolder.
            /usr/local/share/applications/com.popflow.DownloadsFolder.desktop \
            /usr/local/bin/cosmic-applet-folder-button
 
+echo "==> Removing the terminals applet (needs sudo)..."
+sudo rm -f /usr/local/bin/cosmic-applet-terminals \
+           /usr/local/share/applications/com.popflow.CosmicAppletTerminals.desktop
+
 echo "==> Removing vampire mode (sleep returns to normal first)..."
 # --off before the binary goes: it puts the idle settings back as they were.
 if [ -x /usr/local/bin/cosmic-applet-vampire ]; then

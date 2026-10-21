@@ -6,3 +6,4 @@ new-window = Nova Janela
 run = Executar
 run-on = Executar em { $gpu }
 run-on-default = (Padrão)
+open-in-terminal = Abrir no terminal

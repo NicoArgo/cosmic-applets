@@ -6,3 +6,4 @@ new-window = New Window
 run = Run
 run-on = Run on {$gpu}
 run-on-default = (Default)
+open-in-terminal = Open in terminal

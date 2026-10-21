@@ -413,6 +413,8 @@ enum Message {
     Activate(ExtForeignToplevelHandleV1),
     Toggle(ExtForeignToplevelHandleV1),
     Exec(String, Option<usize>, bool),
+    /// POP Flow: a terminal in the app's repository (or launcher `Path=`).
+    OpenTerminal(PathBuf),
     CloseToplevel(ExtForeignToplevelHandleV1),
     Quit(String),
     NewSeat(WlSeat),
@@ -1584,6 +1586,12 @@ impl cosmic::Application for CosmicAppList {
                     self.rectangle_tracker.replace(tracker);
                 }
             },
+            Message::OpenTerminal(dir) => {
+                crate::terminal_dir::open(&dir);
+                if let Some(p) = self.popup.take() {
+                    return destroy_popup(p.id);
+                }
+            }
             Message::ClosePopup => {
                 if let Some(p) = self.popup.take() {
                     return destroy_popup(p.id);
@@ -2224,6 +2232,15 @@ impl cosmic::Application for CosmicAppList {
                             content = content.push(menu_button(text::body(name)).on_press(
                                 Message::Exec(exec.into(), None, desktop_info.terminal()),
                             ));
+                        }
+                        // POP Flow: only for apps with a folder of their own —
+                        // ones built from a checkout, or whose launcher sets one.
+                        if let Some(dir) = crate::terminal_dir::app_dir(exec, desktop_info.path())
+                        {
+                            content = content.push(
+                                menu_button(text::body(fl!("open-in-terminal")))
+                                    .on_press(Message::OpenTerminal(dir)),
+                            );
                         }
                         content = content.push(divider::horizontal::light());
                     }

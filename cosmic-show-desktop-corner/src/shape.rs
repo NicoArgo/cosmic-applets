@@ -75,11 +75,23 @@ pub struct Look {
 }
 
 /// Idle: a small, faint mark — there, if you look for it.
-pub const IDLE: Look = Look { legs: 12.0, alpha: 0.60, lighten: 0.55 };
+pub const IDLE: Look = Look {
+    legs: 12.0,
+    alpha: 0.60,
+    lighten: 0.55,
+};
 /// Pointer over it: grows to announce it is clickable.
-pub const HOVER: Look = Look { legs: 22.0, alpha: 0.90, lighten: 0.0 };
+pub const HOVER: Look = Look {
+    legs: 22.0,
+    alpha: 0.90,
+    lighten: 0.0,
+};
 /// Button held.
-pub const PRESSED: Look = Look { legs: 19.0, alpha: 1.0, lighten: 0.0 };
+pub const PRESSED: Look = Look {
+    legs: 19.0,
+    alpha: 1.0,
+    lighten: 0.0,
+};
 
 /// Whether a logical point is inside the corner triangle with the given legs.
 pub fn inside(corner: ScreenCorner, x: f64, y: f64, legs: f64) -> bool {
@@ -155,8 +167,12 @@ pub fn input_staircase(corner: ScreenCorner, step: u32) -> Vec<(i32, i32, i32, i
         .map(|k| {
             let bottom = SIZE - k * step;
             let h = step.min(bottom);
-            let (x, y, w, h) =
-                ((k * step) as i32, (bottom - h) as i32, (SIZE - k * step) as i32, h as i32);
+            let (x, y, w, h) = (
+                (k * step) as i32,
+                (bottom - h) as i32,
+                (SIZE - k * step) as i32,
+                h as i32,
+            );
             (
                 if corner.left() { s - x - w } else { x },
                 if corner.top() { s - y - h } else { y },
@@ -259,10 +275,7 @@ mod tests {
             let rects = input_staircase(corner, 4);
             let covered = |x: f64, y: f64| {
                 rects.iter().any(|&(rx, ry, rw, rh)| {
-                    x >= rx as f64
-                        && x < (rx + rw) as f64
-                        && y >= ry as f64
-                        && y < (ry + rh) as f64
+                    x >= rx as f64 && x < (rx + rw) as f64 && y >= ry as f64 && y < (ry + rh) as f64
                 })
             };
             for py in 0..SIZE {
@@ -290,7 +303,11 @@ mod tests {
             assert_ne!(one, all, "{corner:?}: the modes must look different");
             let ((nx, ny), _) = near_and_far(corner, SIZE as usize);
             let alpha = |px: &[u8], x: usize, y: usize| px[(y * SIZE as usize + x) * 4 + 3];
-            assert_eq!(alpha(&one, nx, ny), alpha(&all, nx, ny), "the very corner stays");
+            assert_eq!(
+                alpha(&one, nx, ny),
+                alpha(&all, nx, ny),
+                "the very corner stays"
+            );
             // Fewer lit pixels, never more.
             let lit = |px: &[u8]| px.chunks(4).map(|p| p[3] as u32).sum::<u32>();
             assert!(lit(&all) < lit(&one));

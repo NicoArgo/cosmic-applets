@@ -146,10 +146,15 @@ mod tests {
 
     #[test]
     fn reads_every_option_in_both_spellings() {
-        let options =
-            parse_list(&["--corner", "top-left", "--dwell-ms=250", "--exec", "cosmic-workspaces"])
-                .unwrap()
-                .unwrap();
+        let options = parse_list(&[
+            "--corner",
+            "top-left",
+            "--dwell-ms=250",
+            "--exec",
+            "cosmic-workspaces",
+        ])
+        .unwrap()
+        .unwrap();
         assert_eq!(
             options,
             Options {
@@ -169,7 +174,10 @@ mod tests {
             command_for(DEFAULT_EXEC, Some("HDMI-A-2"), true),
             "cosmic-applet-show-desktop --toggle --output 'HDMI-A-2'"
         );
-        assert_eq!(command_for(DEFAULT_EXEC, Some("HDMI-A-2"), false), DEFAULT_EXEC);
+        assert_eq!(
+            command_for(DEFAULT_EXEC, Some("HDMI-A-2"), false),
+            DEFAULT_EXEC
+        );
         // Name not known yet: the toggle falls back to the focused window's.
         assert_eq!(command_for(DEFAULT_EXEC, None, true), DEFAULT_EXEC);
     }
@@ -181,15 +189,23 @@ mod tests {
             "notify-send corner 'eDP-1'"
         );
         assert_eq!(command_for("x {output}", None, true), "x ''");
-        assert_eq!(command_for("x {output}", Some("it's"), true), r"x 'it'\''s'");
+        assert_eq!(
+            command_for("x {output}", Some("it's"), true),
+            r"x 'it'\''s'"
+        );
         // No placeholder: untouched, whatever the setting.
-        assert_eq!(command_for("cosmic-workspaces", Some("eDP-1"), true), "cosmic-workspaces");
+        assert_eq!(
+            command_for("cosmic-workspaces", Some("eDP-1"), true),
+            "cosmic-workspaces"
+        );
     }
 
     #[test]
     fn only_show_desktop_corners_carry_the_setting() {
         assert!(Options::default().is_show_desktop());
-        let overview = parse_list(&["--exec", "cosmic-workspaces"]).unwrap().unwrap();
+        let overview = parse_list(&["--exec", "cosmic-workspaces"])
+            .unwrap()
+            .unwrap();
         assert!(!overview.is_show_desktop());
     }
 

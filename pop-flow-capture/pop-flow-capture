@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# POP Flow — take a screenshot, keep the file AND put the image on the clipboard.
+#
+# cosmic-screenshot either saves or copies (the portal's choice), never both. It
+# prints the saved file's path, so we copy that file as image/png: Ctrl+V pastes
+# it anywhere — including Claude Code in a terminal, which reads the image with
+# wl-paste. If the portal's "copy" button was used there is no file, and the
+# clipboard is already right.
+#
+#   pop-flow-capture            interactive (same as the Print key)
+#   pop-flow-capture --area     straight to the rectangle selection
+# Extra arguments go to cosmic-screenshot.
+set -uo pipefail
+
+args=()
+for a in "$@"; do
+    case "$a" in
+        --area) ;;  # the portal remembers "Rectangle"; interactive mode starts there
+        *) args+=("$a") ;;
+    esac
+done
+
+path=$(cosmic-screenshot --notify=false "${args[@]}" 2>/dev/null | tail -n 1)
+[ -n "$path" ] && [ -f "$path" ] || exit 0  # cancelled, or copied by the portal
+
+if command -v wl-copy >/dev/null; then
+    wl-copy --type image/png < "$path"
+    body="Ctrl+V cola a imagem. Salva em ${path/#$HOME/\~}"
+else
+    body="Salva em ${path/#$HOME/\~} — instale o wl-clipboard para copiar"
+fi
+
+# Clicking the notification shows the file in the file manager.
+(
+    action=$(notify-send --app-name="Captura" --icon=image-x-generic \
+        --action=open="Mostrar na pasta" --wait "Captura copiada" "$body" 2>/dev/null)
+    if [ "$action" = open ]; then
+        dbus-send --session --dest=org.freedesktop.FileManager1 --type=method_call \
+            /org/freedesktop/FileManager1 org.freedesktop.FileManager1.ShowItems \
+            "array:string:file://$path" string:"" 2>/dev/null || xdg-open "$(dirname "$path")"
+    fi
+) >/dev/null 2>&1 &
+disown

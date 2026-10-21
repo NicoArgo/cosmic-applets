@@ -20,6 +20,12 @@
 //! the corner will act on hover again, so sitting there doesn't flip the
 //! desktop back and forth.
 //!
+//! It also works while something is being dragged — a file from the file
+//! manager, a link from a browser. During a drag the compositor stops sending
+//! pointer events and sends drag-and-drop ones instead, so the triangle listens
+//! to those too: resting on it with a file in hand shows the desktop, and the
+//! file can then be dropped there. The corner never accepts the drop itself.
+//!
 //! That is the default. The same binary serves any corner with any command —
 //! `--corner top-left --exec cosmic-workspaces` is the overview corner — one
 //! process per corner, each its own user service (see [`args`]).
@@ -35,8 +41,14 @@ use std::time::{Duration, SystemTime};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm,
+    data_device_manager::{
+        DataDeviceManagerState, WritePipe,
+        data_device::{DataDevice, DataDeviceHandler},
+        data_offer::{DataOfferHandler, DragOffer},
+        data_source::DataSourceHandler,
+    },
+    delegate_compositor, delegate_data_device, delegate_layer, delegate_output, delegate_pointer,
+    delegate_registry, delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
@@ -66,7 +78,10 @@ use smithay_client_toolkit::{
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
+    protocol::{
+        wl_data_device::WlDataDevice, wl_data_device_manager::DndAction,
+        wl_data_source::WlDataSource, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface,
+    },
 };
 
 use args::Options;
@@ -101,6 +116,10 @@ fn main() {
     let compositor = CompositorState::bind(&globals, &qh).expect("wl_compositor");
     let layer_shell = LayerShell::bind(&globals, &qh).expect("layer shell");
     let shm = Shm::bind(&globals, &qh).expect("wl_shm");
+    // Optional: without it the corner still works, just not mid-drag.
+    let data_device_manager = DataDeviceManagerState::bind(&globals, &qh)
+        .map_err(|err| eprintln!("no wl_data_device_manager, corner ignores drags: {err}"))
+        .ok();
 
     // One buffer's worth to start; the pool grows as surfaces (one per
     // output) and scales need more.
@@ -120,6 +139,9 @@ fn main() {
         surfaces: Vec::new(),
         next_id: 0,
         pointer: None,
+        data_device_manager,
+        data_device: None,
+        drag_over: None,
         accent: Accent::load(),
         per_output: config::per_output(),
         loop_handle: event_loop.handle(),
@@ -193,7 +215,10 @@ impl Accent {
             return false;
         }
         self.stamp = stamp;
-        match std::fs::read_to_string(&path).ok().and_then(|s| shape::parse_accent(&s)) {
+        match std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| shape::parse_accent(&s))
+        {
             Some(rgb) if rgb != self.rgb => {
                 self.rgb = rgb;
                 true
@@ -253,6 +278,12 @@ struct Corner {
     surfaces: Vec<Surface>,
     next_id: u64,
     pointer: Option<wl_pointer::WlPointer>,
+    data_device_manager: Option<DataDeviceManagerState>,
+    /// The seat's data device: drag-and-drop events arrive here, not on the
+    /// pointer.
+    data_device: Option<DataDevice>,
+    /// The surface (by id) a drag is currently over.
+    drag_over: Option<u64>,
     accent: Accent,
     /// The show-desktop setting as last read: only for drawing. Acting reads
     /// the file afresh.
@@ -269,7 +300,9 @@ impl Corner {
         }
         let info = self.output_state.info(&output);
         let name = info.as_ref().and_then(|info| info.name.clone());
-        let scale = info.as_ref().map_or(1, |info| info.scale_factor.max(1) as u32);
+        let scale = info
+            .as_ref()
+            .map_or(1, |info| info.scale_factor.max(1) as u32);
 
         let surface = self.compositor.create_surface(qh);
         // Top: above ordinary windows (the corner must work while they cover
@@ -301,7 +334,9 @@ impl Corner {
                 for (x, y, w, h) in shape::input_staircase(self.options.corner, 4) {
                     region.add(x, y, w, h);
                 }
-                layer.wl_surface().set_input_region(Some(region.wl_region()));
+                layer
+                    .wl_surface()
+                    .set_input_region(Some(region.wl_region()));
                 // The surface keeps its own copy; the region is destroyed
                 // when it drops here.
             }
@@ -441,7 +476,11 @@ impl Corner {
         // Read now, not from the cached copy: the setting may have changed in
         // Settings a moment ago.
         let exec = args::command_for(&self.options.exec, name, config::per_output());
-        match std::process::Command::new("sh").arg("-c").arg(&exec).spawn() {
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&exec)
+            .spawn()
+        {
             // Reap it off-thread so no zombie lingers, and say how it ended:
             // a command that fails silently looks exactly like a dead corner.
             Ok(mut child) => {
@@ -479,7 +518,11 @@ impl Corner {
 /// daemon over the session bus, through busctl, which systemd always brings.
 fn notify(summary: &str) {
     let sent = std::process::Command::new("notify-send")
-        .args(["--app-name=POP Flow", &format!("--icon={NOTIFY_ICON}"), summary])
+        .args([
+            "--app-name=POP Flow",
+            &format!("--icon={NOTIFY_ICON}"),
+            summary,
+        ])
         .status()
         .is_ok_and(|status| status.success());
     if sent {
@@ -567,7 +610,12 @@ impl OutputHandler for Corner {
         self.add_surface(qh, output);
     }
 
-    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+    fn update_output(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        output: wl_output::WlOutput,
+    ) {
         // Names don't usually change, but they arrive in the same burst as
         // the output; keep the latest.
         let name = self.output_state.info(&output).and_then(|info| info.name);
@@ -586,7 +634,10 @@ impl OutputHandler for Corner {
             eprintln!(
                 "{} corner off {}",
                 self.options.corner.name(),
-                self.surfaces[index].name.as_deref().unwrap_or("an unnamed output")
+                self.surfaces[index]
+                    .name
+                    .as_deref()
+                    .unwrap_or("an unnamed output")
             );
             self.remove_surface(index);
         }
@@ -634,6 +685,11 @@ impl SeatHandler for Corner {
         seat: wl_seat::WlSeat,
         capability: Capability,
     ) {
+        if capability == Capability::Pointer && self.data_device.is_none() {
+            if let Some(manager) = &self.data_device_manager {
+                self.data_device = Some(manager.get_data_device(qh, &seat));
+            }
+        }
         if capability == Capability::Pointer && self.pointer.is_none() {
             self.pointer = match self.seat_state.get_pointer(qh, &seat) {
                 Ok(pointer) => Some(pointer),
@@ -747,6 +803,103 @@ impl PointerHandler for Corner {
     }
 }
 
+impl Corner {
+    /// A drag moved over (or off) a triangle: the same hover as the pointer's,
+    /// so the same rest-to-act timer runs. Nothing is pressed during a drag.
+    fn drag_hover(&mut self, id: Option<u64>, x: f64, y: f64) {
+        let before = self.drag_over;
+        self.drag_over = id;
+        for index in 0..self.surfaces.len() {
+            let surface = &mut self.surfaces[index];
+            let ours = Some(surface.id) == id || Some(surface.id) == before;
+            if !ours {
+                continue;
+            }
+            let hover =
+                Some(surface.id) == id && shape::inside(self.options.corner, x, y, SIZE as f64);
+            if hover != surface.hover {
+                surface.hover = hover;
+                self.track_dwell(index);
+                self.draw(index);
+            }
+        }
+    }
+}
+
+impl DataDeviceHandler for Corner {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlDataDevice,
+        x: f64,
+        y: f64,
+        wl_surface: &wl_surface::WlSurface,
+    ) {
+        let id = self.index_of(wl_surface).map(|i| self.surfaces[i].id);
+        self.drag_hover(id, x, y);
+    }
+
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.drag_hover(None, 0.0, 0.0);
+    }
+
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
+        self.drag_hover(self.drag_over, x, y);
+    }
+
+    fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        // Never accepted, so nothing lands here; just stop hovering.
+        self.drag_hover(None, 0.0, 0.0);
+    }
+}
+
+impl DataOfferHandler for Corner {
+    fn source_actions(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &mut DragOffer,
+        _: DndAction,
+    ) {
+    }
+    fn selected_action(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &mut DragOffer,
+        _: DndAction,
+    ) {
+    }
+}
+
+// We never offer data; the trait comes with the data device.
+impl DataSourceHandler for Corner {
+    fn accept_mime(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlDataSource,
+        _: Option<String>,
+    ) {
+    }
+    fn send_request(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlDataSource,
+        _: String,
+        _: WritePipe,
+    ) {
+    }
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
+}
+
 impl ShmHandler for Corner {
     fn shm_state(&mut self) -> &mut Shm {
         &mut self.shm
@@ -766,4 +919,5 @@ delegate_shm!(Corner);
 delegate_seat!(Corner);
 delegate_pointer!(Corner);
 delegate_layer!(Corner);
+delegate_data_device!(Corner);
 delegate_registry!(Corner);

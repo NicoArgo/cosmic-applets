@@ -75,6 +75,13 @@ systemctl --user daemon-reload
 systemctl --user enable cosmic-show-desktop-corner.service
 # restart, not start: a reinstall must pick up the new binary.
 systemctl --user restart cosmic-show-desktop-corner.service
+# The bottom-left corner does the same, so either bottom corner works — also
+# with a file being dragged.
+install -Dm 0644 cosmic-show-desktop-corner/data/cosmic-show-desktop-corner-left.service \
+    "$HOME/.config/systemd/user/cosmic-show-desktop-corner-left.service"
+systemctl --user daemon-reload
+systemctl --user enable cosmic-show-desktop-corner-left.service
+systemctl --user restart cosmic-show-desktop-corner-left.service
 # The same binary as a top-left hot corner for the workspaces overview —
 # installed but left off: that corner is also the panel's first button.
 install -Dm 0644 cosmic-show-desktop-corner/data/cosmic-overview-corner.service \
@@ -156,6 +163,16 @@ sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || t
 /usr/local/bin/cosmic-applet-vampire --refresh >/dev/null \
     || echo "!! Could not refresh vampire mode's units; switch it off and on again."
 
+# --- capture ----------------------------------------------------------------
+# A screenshot that is saved AND on the clipboard (Ctrl+V pastes it, also into
+# Claude Code in a terminal). A script, no build. setup-desktop.sh points the
+# Print key at it. Copying needs wl-clipboard.
+echo
+echo "==> Installing pop-flow-capture (needs sudo)..."
+sudo install -Dm 0755 pop-flow-capture/pop-flow-capture /usr/local/bin/pop-flow-capture
+command -v wl-copy >/dev/null \
+    || echo "!! wl-clipboard is missing: sudo apt install wl-clipboard (or the capture is only saved)"
+
 echo "==> Restarting the panel to reload the applets..."
 pkill -x cosmic-panel 2>/dev/null || true
 
@@ -169,13 +186,15 @@ echo
 echo "    The Pictures and Downloads buttons are added the same way, in that"
 echo "    same panel-applet list."
 echo
-echo "    The triangle in the bottom-right corner of each screen does the same —"
-echo "    click it, or rest the pointer on it for a moment. By default it only"
+echo "    The triangles in the bottom-right and bottom-left corners do the same —"
+echo "    click one, or rest the pointer on it for a moment, even while dragging"
+echo "    a file (then drop it on the desktop). By default it only"
 echo "    puts away the windows of the screen it is on; right-click it to switch"
 echo "    between \"this screen\" and \"all screens\" (the panel button and the"
 echo "    shortcut follow the same setting; also: cosmic-applet-show-desktop"
 echo "    --scope screen|all|status). Turn the triangle off with:"
 echo "        systemctl --user disable --now cosmic-show-desktop-corner"
+echo "        systemctl --user disable --now cosmic-show-desktop-corner-left"
 echo
 echo "    A top-left corner for the workspaces overview is installed but off;"
 echo "    turn it on with: systemctl --user enable --now cosmic-overview-corner"

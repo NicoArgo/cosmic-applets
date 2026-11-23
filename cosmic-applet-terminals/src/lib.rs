@@ -73,6 +73,7 @@ enum Message {
     Open,
     Activate(Handle),
     Close(Handle),
+    Duplicate(Handle),
     Menu(Handle),
     MenuClosed(window::Id),
     Hover(Option<Target>),
@@ -104,9 +105,19 @@ impl Terminals {
     }
 
     fn open_new(&self) {
+        self.open_in(None);
+    }
+
+    /// A new terminal window in `dir`, or in the home folder.
+    fn open_in(&self, dir: Option<&std::path::Path>) {
         let mut command = std::process::Command::new("cosmic-term");
         if let Some(home) = dirs::home_dir() {
             command.current_dir(home);
+        }
+        // Checked here: the folder may have gone since the terminal last said
+        // where it stood, and the terminal would then fall back silently.
+        if let Some(dir) = dir.filter(|dir| dir.is_dir()) {
+            command.arg("--working-directory").arg(dir);
         }
         match command.spawn() {
             Ok(mut child) => {
@@ -255,6 +266,12 @@ impl cosmic::Application for Terminals {
                 self.send(Request::Close(handle));
                 return self.close_menu();
             }
+            Message::Duplicate(handle) => {
+                self.read_presences();
+                let cwd = self.dots().into_iter().find(|dot| dot.handle == handle).and_then(|dot| dot.cwd);
+                self.open_in(cwd.as_deref());
+                return self.close_menu();
+            }
             Message::Menu(handle) => {
                 let same = self.menu.as_ref().is_some_and(|(_, h)| *h == handle);
                 let close = self.close_menu();
@@ -392,6 +409,7 @@ impl cosmic::Application for Terminals {
             .push(padded_control(text::heading(name)))
             .push(padded_control(divider::horizontal::default()))
             .push(menu_button(text::body(fl!("bring-forward"))).on_press(Message::Activate(handle.clone())))
+            .push(menu_button(text::body(fl!("duplicate-terminal"))).on_press(Message::Duplicate(handle.clone())))
             .push(menu_button(text::body(fl!("close-window"))).on_press(Message::Close(handle.clone())));
         self.core.applet.popup_container(menu.padding([8, 0])).into()
     }

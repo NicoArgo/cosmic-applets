@@ -36,6 +36,8 @@ pub struct Presence {
     pub title: String,
     pub name: Option<String>,
     pub accent: Option<[u8; 3]>,
+    /// The folder the window's active tab stands in ("Duplicar terminal").
+    pub cwd: Option<PathBuf>,
 }
 
 /// One dot on the panel.
@@ -46,6 +48,8 @@ pub struct Dot<H> {
     pub accent: Option<[u8; 3]>,
     pub name: String,
     pub active: bool,
+    /// Where a duplicate of this terminal opens; `None` = the home folder.
+    pub cwd: Option<PathBuf>,
 }
 
 pub fn presence_dir() -> Option<PathBuf> {
@@ -66,6 +70,7 @@ pub fn parse_presence(pid: u32, text: &str) -> Presence {
             "title" => presence.title = value.to_string(),
             "name" if !value.trim().is_empty() => presence.name = Some(value.trim().to_string()),
             "accent" => presence.accent = parse_hex(value),
+            "cwd" if value.starts_with('/') => presence.cwd = Some(PathBuf::from(value)),
             _ => {}
         }
     }
@@ -160,6 +165,7 @@ pub fn dots<H: PartialEq + Clone>(
                     .and_then(|p| p.name.clone())
                     .unwrap_or_else(|| fallback_name(&w.title)),
                 active: w.active,
+                cwd: presence.and_then(|p| p.cwd.clone()),
             }
         })
         .collect()
@@ -185,6 +191,7 @@ mod tests {
             title: title.into(),
             name: accent.map(|_| "FLOW".into()),
             accent,
+            cwd: None,
         }
     }
 
@@ -192,7 +199,12 @@ mod tests {
     fn parses_what_the_terminal_writes() {
         let p = parse_presence(
             7,
-            "title=POP FLOW — claude — COSMIC Terminal\nname=POP FLOW\naccent=#48B9C7\n",
+            "title=POP FLOW — claude — COSMIC Terminal\nname=POP FLOW\naccent=#48B9C7\n\
+             cwd=/home/nico/Área de trabalho/Pop Flow\n",
+        );
+        assert_eq!(
+            p.cwd.as_deref(),
+            Some(Path::new("/home/nico/Área de trabalho/Pop Flow"))
         );
         assert_eq!(p.title, "POP FLOW — claude — COSMIC Terminal");
         assert_eq!(p.name.as_deref(), Some("POP FLOW"));
@@ -202,6 +214,9 @@ mod tests {
         let bare = parse_presence(8, "title=~ — COSMIC Terminal\n");
         assert_eq!(bare.name, None);
         assert_eq!(bare.accent, None);
+        assert_eq!(bare.cwd, None);
+        // Only an absolute folder counts.
+        assert_eq!(parse_presence(9, "cwd=relativo\n").cwd, None);
     }
 
     #[test]

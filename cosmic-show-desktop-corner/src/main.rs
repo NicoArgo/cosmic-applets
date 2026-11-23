@@ -15,7 +15,7 @@
 //! the setting and says so in a notification; with "all screens" the triangle
 //! carries a thin notch, two layers instead of one.
 //!
-//! Resting the pointer on it for a moment (600 ms) does the same as a click,
+//! Resting the pointer on it for a moment (400 ms) does the same as a click,
 //! like a hot corner. It fires once per visit: the pointer has to leave before
 //! the corner will act on hover again, so sitting there doesn't flip the
 //! desktop back and forth.
@@ -254,6 +254,9 @@ struct Surface {
     /// The hover already acted during this visit; cleared when the pointer
     /// leaves.
     dwell_fired: bool,
+    /// A `--toggle --wait` started when the pointer arrived, already holding
+    /// the window list; acting just tells it to go. See [`Corner::prefetch`].
+    prefetch: Option<std::process::Child>,
 }
 
 impl Surface {
@@ -364,16 +367,18 @@ impl Corner {
             menu_pressed: false,
             dwell: None,
             dwell_fired: false,
+            prefetch: None,
         });
     }
 
     /// Drop a surface: its layer (destroying the wl_surface), its buffer and
     /// any pending timer go with it.
     fn remove_surface(&mut self, index: usize) {
-        let surface = self.surfaces.remove(index);
+        let mut surface = self.surfaces.remove(index);
         if let Some(token) = surface.dwell {
             self.loop_handle.remove(token);
         }
+        cancel_prefetch(&mut surface.prefetch);
     }
 
     fn index_of(&self, wl_surface: &wl_surface::WlSurface) -> Option<usize> {
@@ -430,6 +435,7 @@ impl Corner {
 
     /// Start counting when the pointer arrives; forget it when it goes.
     fn track_dwell(&mut self, index: usize) {
+        self.prefetch(index);
         let Some(dwell) = self.options.dwell else {
             return;
         };
@@ -468,10 +474,61 @@ impl Corner {
         }
     }
 
+    /// Show-desktop corner: while the pointer is on the triangle, keep a
+    /// `--toggle --wait` running, so the window list is already in hand when
+    /// the rest ends or the click lands. COSMIC sends that list 45 to 145 ms
+    /// after a client connects (measured 23/11/2026); started at act time, as
+    /// before, that wait came on top of the rest, every time.
+    ///
+    /// Only for the default command: a custom `--exec` runs as it always did.
+    fn prefetch(&mut self, index: usize) {
+        if self.options.exec != args::DEFAULT_EXEC {
+            return;
+        }
+        let Some(surface) = self.surfaces.get_mut(index) else {
+            return;
+        };
+        if !surface.hover {
+            cancel_prefetch(&mut surface.prefetch);
+            return;
+        }
+        if surface.prefetch.is_some() {
+            return;
+        }
+        // Always with the output: the toggle reads the "this screen / all"
+        // setting itself when it acts, so a right click in between still counts.
+        let exec = format!(
+            "{} --wait",
+            args::command_for(args::DEFAULT_EXEC, surface.name.as_deref(), true)
+        );
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("exec {exec}"))
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => surface.prefetch = Some(child),
+            Err(err) => eprintln!("{exec}: {err}"),
+        }
+    }
+
     /// Run the corner's command for the screen it was triggered on (`--exec`,
     /// through `sh -c` so it can carry arguments the way a desktop shortcut
     /// would).
-    fn act(&self, index: usize) {
+    fn act(&mut self, index: usize) {
+        if let Some(mut child) = self.surfaces.get_mut(index).and_then(|s| s.prefetch.take()) {
+            use std::io::Write;
+            let sent = child
+                .stdin
+                .take()
+                .is_some_and(|mut stdin| stdin.write_all(b"go\n").is_ok());
+            reap(child, "show-desktop toggle");
+            if sent {
+                // Still on the triangle: the next click gets its list ready too.
+                self.prefetch(index);
+                return;
+            }
+        }
         let name = self.surfaces.get(index).and_then(|s| s.name.as_deref());
         // Read now, not from the cached copy: the setting may have changed in
         // Settings a moment ago.
@@ -512,6 +569,25 @@ impl Corner {
         // Off the event loop: notify-send waits for the daemon's answer.
         std::thread::spawn(move || notify(summary));
     }
+}
+
+/// The pointer left without acting: closing its stdin tells the waiting
+/// toggle to exit without touching anything.
+fn cancel_prefetch(prefetch: &mut Option<std::process::Child>) {
+    if let Some(mut child) = prefetch.take() {
+        drop(child.stdin.take());
+        reap(child, "show-desktop prefetch");
+    }
+}
+
+/// Wait for a child off the event loop, so no zombie lingers, and say how it
+/// ended: a command that fails silently looks exactly like a dead corner.
+fn reap(mut child: std::process::Child, what: &'static str) {
+    std::thread::spawn(move || match child.wait() {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!("{what} exited with {status}"),
+        Err(err) => eprintln!("{what}: {err}"),
+    });
 }
 
 /// notify-send when there is one; otherwise straight to the notification

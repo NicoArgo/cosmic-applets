@@ -13,6 +13,9 @@
 pub struct Window<Id> {
     pub id: Id,
     pub minimized: bool,
+    /// Has the keyboard focus. Put away last, so the compositor never hands
+    /// the focus to a window that is about to go too.
+    pub activated: bool,
 }
 
 /// One request to make of the compositor.
@@ -73,9 +76,19 @@ impl<Id: Clone + PartialEq> ShowDesktop<Id> {
         // Only what is actually on screen. Sweeping up already-minimized
         // windows would mean restoring them later to a state the user never
         // asked for.
-        self.hidden = windows
+        //
+        // The focused window goes last. Minimizing it while others are still
+        // up made COSMIC focus and raise the next one, so the screen flashed
+        // through windows before the desktop showed (seen 23/11/2026: the
+        // focused window was the 2nd of 3). Last in, it is also restored last,
+        // which brings it back on top and focused, as it was.
+        let (focused, others): (Vec<_>, Vec<_>) = windows
             .iter()
             .filter(|window| !window.minimized)
+            .partition(|window| window.activated);
+        self.hidden = others
+            .into_iter()
+            .chain(focused)
             .map(|window| window.id.clone())
             .collect();
 
@@ -127,7 +140,11 @@ mod tests {
 
     fn windows(list: &[(u32, bool)]) -> Vec<Window<u32>> {
         list.iter()
-            .map(|&(id, minimized)| Window { id, minimized })
+            .map(|&(id, minimized)| Window {
+                id,
+                minimized,
+                activated: false,
+            })
             .collect()
     }
 
@@ -250,6 +267,22 @@ mod tests {
             state.toggle(&windows(&[(1, true)])),
             vec![],
             "1 is already minimized, so there is nothing on screen to put away"
+        );
+    }
+
+    #[test]
+    fn the_focused_window_goes_last_and_comes_back_last() {
+        let mut state = ShowDesktop::new();
+        let mut now = windows(&[(1, false), (2, false), (3, false)]);
+        now[1].activated = true;
+        assert_eq!(
+            state.toggle(&now),
+            vec![Step::Minimize(1), Step::Minimize(3), Step::Minimize(2)]
+        );
+        let hidden = windows(&[(1, true), (2, true), (3, true)]);
+        assert_eq!(
+            state.toggle(&hidden),
+            vec![Step::Unminimize(1), Step::Unminimize(3), Step::Unminimize(2)]
         );
     }
 }

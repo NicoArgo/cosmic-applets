@@ -11,6 +11,12 @@
 //! screen", the output named by `--output` (a screen corner names its own), or
 //! else the output of the focused window (Super+D); with "all screens", every
 //! output.
+//!
+//! With `--wait` it connects and gathers the window list first, then acts when
+//! a line arrives on stdin. The screen corner starts it that way as the
+//! pointer arrives, so by the time the rest is over the list is already here:
+//! COSMIC only sends it 45 to 145 ms after a client connects (measured
+//! 23/11/2026), which used to be paid after every rest, on top of it.
 
 use crate::{
     config, scope,
@@ -36,22 +42,40 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(2);
 /// so the first list names only the first window. Acting on it would put one
 /// window away and forget the rest; waiting for the stream to settle gets them
 /// all.
-const SETTLE: Duration = Duration::from_millis(150);
+///
+/// The whole list arrives in one burst (five windows within 0.1 ms, measured
+/// 23/11/2026), so a short quiet is enough; it was 150 ms, all of it waited
+/// on every toggle.
+const SETTLE: Duration = Duration::from_millis(30);
 
 /// How long to let the requests reach the compositor before exiting. The
 /// process owns the Wayland connection, so leaving too early would drop the
 /// requests it just made.
 const FLUSH_GRACE: Duration = Duration::from_millis(250);
 
-pub fn run(output: Option<String>, dry_run: bool) -> Result<(), String> {
+pub fn run(output: Option<String>, dry_run: bool, wait: bool) -> Result<(), String> {
     let (update_tx, mut update_rx) = mpsc::channel::<WaylandUpdate>(4);
     let (calloop_tx, calloop_rx) = calloop::channel::channel::<WaylandRequest>();
 
     let handler = std::thread::spawn(move || wayland_handler(update_tx, calloop_rx));
 
+    // `--wait`: the go-ahead is a line on stdin; stdin closing first means the
+    // pointer left the corner and nothing should happen.
+    let go_rx = wait.then(|| {
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            if matches!(std::io::stdin().read_line(&mut line), Ok(n) if n > 0) {
+                let _ = go_tx.send(());
+            }
+        });
+        go_rx
+    });
+    let mut go = !wait;
+
     // Take lists until they stop coming. Polled rather than awaited, so the
     // deadline holds even if the compositor never says anything at all.
-    let start = Instant::now();
+    let mut start = Instant::now();
     let mut latest: Option<(Vec<_>, Instant)> = None;
     let windows = loop {
         match update_rx.try_recv() {
@@ -65,6 +89,26 @@ pub fn run(output: Option<String>, dry_run: bool) -> Result<(), String> {
             }
             Err(TryRecvError::Empty) => {}
         }
+        if !go && let Some(go_rx) = &go_rx {
+            match go_rx.try_recv() {
+                Ok(()) => {
+                    go = true;
+                    // The deadline counts from the go-ahead: the wait before
+                    // it is the pointer resting, not the compositor stalling.
+                    start = Instant::now();
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    drop(calloop_tx);
+                    let _ = handler.join();
+                    return Ok(());
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if !go {
+            std::thread::sleep(Duration::from_millis(2));
+            continue;
+        }
         if let Some((_, at)) = &latest
             && at.elapsed() >= SETTLE
         {
@@ -76,7 +120,7 @@ pub fn run(output: Option<String>, dry_run: bool) -> Result<(), String> {
                 None => return Err("timed out waiting for the compositor's window list".into()),
             }
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(2));
     };
     // Stop listening. The Wayland thread keeps reporting changes (including
     // the ones this toggle is about to cause); with nobody reading, a full

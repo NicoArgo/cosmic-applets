@@ -24,8 +24,12 @@ fn main() -> cosmic::iced::Result {
         // `--toggle` is the same action as pressing the panel button, for
         // whoever has no panel button to press: a keyboard shortcut, a screen
         // corner, or a touchpad gesture dispatched by the compositor.
-        Command::Toggle { output, dry_run } => {
-            match cosmic_applet_show_desktop::toggle::run(output, dry_run) {
+        Command::Toggle {
+            output,
+            dry_run,
+            wait,
+        } => {
+            match cosmic_applet_show_desktop::toggle::run(output, dry_run, wait) {
                 Ok(()) => Ok(()),
                 Err(err) => {
                     tracing::error!("show-desktop toggle failed: {err}");

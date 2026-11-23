@@ -10,15 +10,17 @@ use crate::shape::ScreenCorner;
 
 pub const DEFAULT_EXEC: &str = "cosmic-applet-show-desktop --toggle";
 /// How long the pointer rests on the corner before it acts on its own. Long
-/// enough that sweeping past on the way to the panel doesn't count.
-pub const DEFAULT_DWELL: Duration = Duration::from_millis(600);
+/// enough that sweeping past on the way to the panel doesn't count. Was 600
+/// ms; lowered to 400 on 23/11/2026 at the owner's request, once the action
+/// after the rest stopped costing another ~0.3 s.
+pub const DEFAULT_DWELL: Duration = Duration::from_millis(400);
 
 pub const USAGE: &str = "\
 usage: cosmic-show-desktop-corner [--corner C] [--dwell-ms N] [--exec COMMAND]
 
   --corner C       top-left, top-right, bottom-left or bottom-right (default)
   --dwell-ms N     rest the pointer this long to act without a click
-                   (default 600; 0 = click only)
+                   (default 400; 0 = click only)
   --exec COMMAND   run through sh -c on click or rest; {output} in it becomes
                    the name of the screen it was triggered on (eDP-1...)
                    (default: cosmic-applet-show-desktop --toggle, which gets
@@ -140,7 +142,7 @@ mod tests {
         let options = parse_list(&[]).unwrap().unwrap();
         assert_eq!(options, Options::default());
         assert_eq!(options.corner, ScreenCorner::BottomRight);
-        assert_eq!(options.dwell, Some(Duration::from_millis(600)));
+        assert_eq!(options.dwell, Some(Duration::from_millis(400)));
         assert_eq!(options.exec, "cosmic-applet-show-desktop --toggle");
     }
 

@@ -206,6 +206,7 @@ fn plain(window: &ScopedWindow) -> Window<String> {
     Window {
         id: window.id.clone(),
         minimized: window.minimized,
+        activated: window.activated,
     }
 }
 

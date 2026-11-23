@@ -6,7 +6,7 @@ use crate::config;
 
 pub const USAGE: &str = "\
 usage: cosmic-applet-show-desktop                       (the panel applet)
-       cosmic-applet-show-desktop --toggle [--output NAME] [--dry-run]
+       cosmic-applet-show-desktop --toggle [--output NAME] [--dry-run] [--wait]
        cosmic-applet-show-desktop --scope screen|all|status
 
   --toggle         show the desktop, or bring back what the last one put away
@@ -14,6 +14,9 @@ usage: cosmic-applet-show-desktop                       (the panel applet)
                    is \"this screen\"; without it, the focused window's output
   --dry-run        with --toggle: print the windows, their outputs, the scope
                    and what would happen, and touch nothing
+  --wait           with --toggle: get the window list now, act only when a
+                   line arrives on stdin; stdin closed first = do nothing
+                   (the screen corner starts this as the pointer arrives)
   --scope screen   from now on, only the screen where it is triggered (default)
   --scope all      from now on, every screen
   --scope status   print the current setting: screen or all";
@@ -24,6 +27,7 @@ pub enum Command {
     Toggle {
         output: Option<String>,
         dry_run: bool,
+        wait: bool,
     },
     SetScope {
         per_output: bool,
@@ -37,6 +41,7 @@ pub enum Command {
 pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut toggle = false;
     let mut dry_run = false;
+    let mut wait = false;
     let mut output = None;
     let mut scope = None;
     let mut args = args.iter();
@@ -55,6 +60,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             "-h" | "--help" => return Ok(Command::Help),
             "--toggle" => toggle = true,
             "--dry-run" => dry_run = true,
+            "--wait" => wait = true,
             "--output" => output = Some(value()?).filter(|name| !name.is_empty()),
             "--scope" => scope = Some(value()?),
             _ => {}
@@ -62,13 +68,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     }
     match (toggle, scope.as_deref()) {
         (true, Some(_)) => Err("--toggle and --scope are separate commands".into()),
-        (true, None) => Ok(Command::Toggle { output, dry_run }),
+        (true, None) => Ok(Command::Toggle {
+            output,
+            dry_run,
+            wait,
+        }),
         (false, Some("screen")) => Ok(Command::SetScope { per_output: true }),
         (false, Some("all")) => Ok(Command::SetScope { per_output: false }),
         (false, Some("status")) => Ok(Command::ScopeStatus),
         (false, Some(other)) => Err(format!("--scope {other}: expected screen, all or status")),
-        (false, None) if output.is_some() || dry_run => {
-            Err("--output and --dry-run go with --toggle".into())
+        (false, None) if output.is_some() || dry_run || wait => {
+            Err("--output, --dry-run and --wait go with --toggle".into())
         }
         (false, None) => Ok(Command::Applet),
     }
@@ -108,21 +118,24 @@ mod tests {
             parse_list(&["--toggle"]),
             Ok(Command::Toggle {
                 output: None,
-                dry_run: false
+                dry_run: false,
+                wait: false
             })
         );
         assert_eq!(
             parse_list(&["--toggle", "--output", "HDMI-A-2"]),
             Ok(Command::Toggle {
                 output: Some("HDMI-A-2".into()),
-                dry_run: false
+                dry_run: false,
+                wait: false
             })
         );
         assert_eq!(
             parse_list(&["--output=eDP-1", "--toggle", "--dry-run"]),
             Ok(Command::Toggle {
                 output: Some("eDP-1".into()),
-                dry_run: true
+                dry_run: true,
+                wait: false
             })
         );
         // An empty name (a corner that didn't know its output yet) is none.
@@ -130,9 +143,23 @@ mod tests {
             parse_list(&["--toggle", "--output", ""]),
             Ok(Command::Toggle {
                 output: None,
-                dry_run: false
+                dry_run: false,
+                wait: false
             })
         );
+    }
+
+    #[test]
+    fn wait_goes_with_toggle() {
+        assert_eq!(
+            parse_list(&["--toggle", "--wait", "--output", "eDP-1"]),
+            Ok(Command::Toggle {
+                output: Some("eDP-1".into()),
+                dry_run: false,
+                wait: true
+            })
+        );
+        assert!(parse_list(&["--wait"]).is_err());
     }
 
     #[test]
